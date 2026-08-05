@@ -58,3 +58,23 @@ async fn shutdown_signal() {
         eprintln!("failed to listen for Ctrl-C: {err}");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uses_the_default_pipeline() {
+        let cli = Cli::try_parse_from(["slik"]).expect("default arguments should parse");
+
+        assert_eq!(cli.pipeline, "videotestsrc is-live=true ! fakesink");
+    }
+
+    #[test]
+    fn accepts_a_custom_pipeline() {
+        let cli = Cli::try_parse_from(["slik", "fakesrc num-buffers=1 ! fakesink"])
+            .expect("custom pipeline argument should parse");
+
+        assert_eq!(cli.pipeline, "fakesrc num-buffers=1 ! fakesink");
+    }
+}
