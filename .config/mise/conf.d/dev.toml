@@ -26,6 +26,10 @@ run = "cargo sort --workspace --grouped --check"
 description = "Run all lint checks"
 depends = ["rust:lint:clippy"]
 
+[tasks."deps:check"]
+description = "Check dependency policy"
+depends = ["rust:deps:check"]
+
 [tasks.check]
 description = "Check project source code"
 depends = ["rust:check:workspace"]
@@ -42,6 +46,7 @@ depends = [
     "sort:crates:check",
     "fmt:check",
     "lint",
+    "deps:check",
     "check",
     "test",
 ]
