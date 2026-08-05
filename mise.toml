@@ -1,0 +1,7 @@
+[tools]
+rust = { version = "1.97.1", profile = "minimal", components = [
+    "rustfmt",
+    "clippy",
+] }
+"github:DevinR528/cargo-sort" = "2.1.4"
+"github:dataroadinc/cargo-fmt-toml" = "0.0.16"
