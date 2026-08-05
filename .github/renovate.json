@@ -1,0 +1,31 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "platformCommit": "disabled",
+  "gitAuthor": "Renovate Bot <bot@renovateapp.com>",
+  "extends": [
+    "config:recommended",
+    ":combinePatchMinorReleases",
+    ":separateMultipleMajorReleases"
+  ],
+  "enabledManagers": ["cargo", "github-actions", "mise"],
+  "minimumReleaseAge": "3 days",
+  "packageRules": [
+    {
+      "description": ["Automerge non-major updates"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": true,
+      "automergeStrategy": "rebase",
+      "automergeType": "branch"
+    },
+    {
+      "description": ["Use ci semantic type for GitHub Actions and mise updates"],
+      "matchManagers": ["github-actions", "mise"],
+      "semanticCommitType": "ci"
+    },
+    {
+      "description": ["Use ci semantic type for workflow files"],
+      "matchFileNames": [".github/workflows/**"],
+      "semanticCommitType": "ci"
+    }
+  ]
+}
