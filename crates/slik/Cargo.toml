@@ -1,0 +1,10 @@
+[package]
+name = "slik"
+version = { workspace = true }
+description = "CLI for running GStreamer pipelines."
+authors = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
