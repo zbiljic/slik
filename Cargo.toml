@@ -16,8 +16,10 @@ anyhow = "1.0.104"
 clap = { version = "4.6.5", features = ["derive"] }
 gstconsole = { package = "gst-plugin-console", git = "https://github.com/zbiljic/gstsmith-rs", branch = "main" }
 gstlines = { package = "gst-plugin-lines", git = "https://github.com/zbiljic/gstsmith-rs", branch = "main" }
+gstreamer-video = { version = "0.25", features = ["v1_24"] }
 gstsmith-app = { git = "https://github.com/zbiljic/gstsmith-app-rs", branch = "main" }
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal"] }
+tract-onnx = "0.23"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
