@@ -1,24 +1,42 @@
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context as _, Result, anyhow};
 use clap::Parser;
 use gstsmith_app::gst::prelude::*;
 use gstsmith_app::{PipelineRunner, gst};
 
+mod nanodet;
+
 #[derive(Debug, Parser)]
-#[command(version, about = "Run a GStreamer video pipeline")]
-struct Cli;
+#[command(version, about = "Run a GStreamer video detection pipeline")]
+struct Cli {
+    /// Path to the NanoDet-Plus-m 320x320 ONNX model.
+    #[arg(
+        long,
+        value_name = "PATH",
+        default_value = "crates/slik/models/nanodet-plus-m-320.onnx"
+    )]
+    model: PathBuf,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let _cli = Cli::parse();
+    let cli = Cli::parse();
+
+    if !cli.model.exists() {
+        anyhow::bail!(
+            "model file not found: {} — download the NanoDet-Plus-m 320x320 ONNX and pass it with --model",
+            cli.model.display()
+        );
+    }
+    let model = nanodet::load_model(&cli.model)?;
 
     gstsmith_app::init().context("initializing GStreamer")?;
     register_plugins()?;
 
     let pipeline = build_pipeline()?;
-    install_frame_probe(&pipeline, "infer")?;
+    install_frame_probe(&pipeline, "infer", Arc::clone(&model))?;
     let exit = PipelineRunner::new(pipeline).run(shutdown_signal()).await?;
 
     println!(
@@ -57,10 +75,12 @@ fn build_pipeline() -> Result<gst::Pipeline> {
     let convert = make("videoconvert", "convert")?;
 
     let capsfilter = make("capsfilter", "caps")?;
+    let input_dim =
+        i32::try_from(nanodet::INPUT).context("NanoDet input dimension does not fit in i32")?;
     let caps = gst::Caps::builder("video/x-raw")
         .field("format", "RGB")
-        .field("width", 320i32)
-        .field("height", 320i32)
+        .field("width", input_dim)
+        .field("height", input_dim)
         .build();
     capsfilter.set_property("caps", &caps);
 
@@ -104,9 +124,13 @@ fn build_pipeline() -> Result<gst::Pipeline> {
     Ok(pipeline)
 }
 
-/// Attach a buffer probe to `element`'s src pad. For now it only logs the first
-/// frame's caps and a periodic buffer count. Plan 003 runs inference here.
-fn install_frame_probe(pipeline: &gst::Pipeline, element_name: &str) -> Result<()> {
+/// Attach a buffer probe to `element`'s src pad that runs `NanoDet` detection on
+/// each frame and prints the objects it sees.
+fn install_frame_probe(
+    pipeline: &gst::Pipeline,
+    element_name: &str,
+    model: Arc<nanodet::Model>,
+) -> Result<()> {
     let element = pipeline
         .by_name(element_name)
         .ok_or_else(|| anyhow!("pipeline has no element named '{element_name}'"))?;
@@ -114,24 +138,10 @@ fn install_frame_probe(pipeline: &gst::Pipeline, element_name: &str) -> Result<(
         .static_pad("src")
         .ok_or_else(|| anyhow!("element '{element_name}' has no static src pad"))?;
 
-    let count = Arc::new(AtomicU64::new(0));
-
     src_pad.add_probe(gst::PadProbeType::BUFFER, move |pad, info| {
-        let Some(_buffer) = info.buffer() else {
-            return gst::PadProbeReturn::Ok;
-        };
-
-        let n = count.fetch_add(1, Ordering::Relaxed);
-        if n == 0 {
-            // Log the negotiated caps once, so we can confirm RGB 320x320.
-            match pad.current_caps() {
-                Some(caps) => println!("first frame caps: {caps}"),
-                None => println!("first frame: caps not yet negotiated"),
-            }
-        } else if n.is_multiple_of(100) {
-            println!("frames seen: {n}");
+        if let Err(err) = nanodet::run_inference(pad, info, &model) {
+            eprintln!("inference error: {err:#}");
         }
-
         gst::PadProbeReturn::Ok
     });
 
@@ -157,7 +167,5 @@ mod tests {
         assert!(pipeline.by_name("source").is_some());
         assert!(pipeline.by_name("infer").is_some());
         assert!(pipeline.by_name("sink").is_some());
-
-        install_frame_probe(&pipeline, "infer").expect("probe should install");
     }
 }
