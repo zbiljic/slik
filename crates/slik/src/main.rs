@@ -1,10 +1,15 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow};
 use clap::Parser;
 use gstsmith_app::gst::prelude::*;
 use gstsmith_app::{PipelineRunner, gst};
+use tracing::{error, info, warn};
+use tracing_subscriber::EnvFilter;
 
 mod nanodet;
 
@@ -22,6 +27,13 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .with_writer(std::io::stderr)
+        .init();
+
     let cli = Cli::parse();
 
     if !cli.model.exists() {
@@ -30,19 +42,23 @@ async fn main() -> Result<()> {
             cli.model.display()
         );
     }
+    info!(model = %cli.model.display(), "loading NanoDet model");
     let model = nanodet::load_model(&cli.model)?;
+    info!("model loaded");
 
+    info!("initializing GStreamer");
     gstsmith_app::init().context("initializing GStreamer")?;
+    info!("registering plugins");
     register_plugins()?;
 
+    info!("building pipeline");
     let pipeline = build_pipeline()?;
+    info!("installing frame probe");
     install_frame_probe(&pipeline, "infer", Arc::clone(&model))?;
+    info!(build = env!("SLIK_GIT_HASH"), "starting pipeline");
     let exit = PipelineRunner::new(pipeline).run(shutdown_signal()).await?;
 
-    println!(
-        "pipeline stopped: {exit:?} (build {})",
-        env!("SLIK_GIT_HASH")
-    );
+    info!(?exit, build = env!("SLIK_GIT_HASH"), "pipeline stopped");
     Ok(())
 }
 
@@ -138,9 +154,29 @@ fn install_frame_probe(
         .static_pad("src")
         .ok_or_else(|| anyhow!("element '{element_name}' has no static src pad"))?;
 
+    let frames = Arc::new(AtomicU64::new(0));
+    let detections = Arc::new(AtomicU64::new(0));
+    let last_beat = Arc::new(Mutex::new(Instant::now()));
+
     src_pad.add_probe(gst::PadProbeType::BUFFER, move |pad, info| {
-        if let Err(err) = nanodet::run_inference(pad, info, &model) {
-            eprintln!("inference error: {err:#}");
+        match nanodet::run_inference(pad, info, &model) {
+            Ok(n) => {
+                let f = frames.fetch_add(1, Relaxed) + 1;
+                detections.fetch_add(u64::try_from(n).unwrap_or(u64::MAX), Relaxed);
+                if let Ok(mut beat) = last_beat.lock()
+                    && (f == 1 || beat.elapsed() >= Duration::from_secs(1))
+                {
+                    info!(
+                        frames = frames.load(Relaxed),
+                        detections = detections.load(Relaxed),
+                        "pipeline running"
+                    );
+                    *beat = Instant::now();
+                }
+            }
+            Err(err) => {
+                warn!(error = %format!("{err:#}"), "inference error");
+            }
         }
         gst::PadProbeReturn::Ok
     });
@@ -150,7 +186,7 @@ fn install_frame_probe(
 
 async fn shutdown_signal() {
     if let Err(err) = tokio::signal::ctrl_c().await {
-        eprintln!("failed to listen for Ctrl-C: {err}");
+        error!(%err, "failed to listen for Ctrl-C");
     }
 }
 

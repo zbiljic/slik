@@ -35,9 +35,15 @@ pub fn load_model(path: &Path) -> Result<Arc<Model>> {
     Ok(model)
 }
 
-pub fn run_inference(pad: &gst::Pad, info: &gst::PadProbeInfo, model: &Arc<Model>) -> Result<()> {
+/// Runs detection on the frame carried by `info` and prints each detection.
+/// Returns the number of detections remaining after NMS.
+pub fn run_inference(
+    pad: &gst::Pad,
+    info: &gst::PadProbeInfo,
+    model: &Arc<Model>,
+) -> Result<usize> {
     let Some(buffer) = info.buffer() else {
-        return Ok(());
+        return Ok(0);
     };
     let caps = pad
         .current_caps()
@@ -116,7 +122,7 @@ pub fn run_inference(pad: &gst::Pad, info: &gst::PadProbeInfo, model: &Arc<Model
             d.y2
         );
     }
-    Ok(())
+    Ok(detections.len())
 }
 
 #[derive(Clone, Copy, Debug)]
