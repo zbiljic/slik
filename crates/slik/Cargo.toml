@@ -17,6 +17,8 @@ gstlines = { workspace = true }
 gstreamer-video = { workspace = true }
 gstsmith-app = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 tract-onnx = { workspace = true }
 
 [lints]
