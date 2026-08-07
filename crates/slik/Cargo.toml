@@ -22,5 +22,9 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tract-onnx = { workspace = true }
 
+[features]
+default = []
+coreml = ["ort/coreml"]
+
 [lints]
 workspace = true

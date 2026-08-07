@@ -27,8 +27,11 @@ pub trait Detector: Send + Sync {
 pub enum Runtime {
     /// Pure-Rust `tract` runtime.
     Tract,
-    /// ONNX Runtime via the `ort` crate.
+    /// ONNX Runtime via the `ort` crate on the CPU.
     Ort,
+    /// ONNX Runtime with the `CoreML` execution provider (Apple; requires the
+    /// `coreml` feature).
+    OrtCoreml,
 }
 
 /// Load `path` with the selected `runtime`. `threads` sets ort's intra-op thread
@@ -37,5 +40,18 @@ pub fn load(runtime: Runtime, path: &Path, threads: Option<usize>) -> Result<Arc
     match runtime {
         Runtime::Tract => Ok(Arc::new(tract::TractDetector::load(path)?)),
         Runtime::Ort => Ok(Arc::new(ort::OrtDetector::load(path, threads)?)),
+        Runtime::OrtCoreml => {
+            #[cfg(feature = "coreml")]
+            {
+                Ok(Arc::new(ort::OrtDetector::load_coreml(path, threads)?))
+            }
+            #[cfg(not(feature = "coreml"))]
+            {
+                let _ = (path, threads);
+                anyhow::bail!(
+                    "this build lacks the 'coreml' feature; rebuild with --features coreml"
+                )
+            }
+        }
     }
 }
