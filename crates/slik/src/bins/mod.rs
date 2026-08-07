@@ -1,8 +1,36 @@
+//! Reusable pipeline fragments ("bins"), composed like elements.
+//!
+//! A bin builds a `gst::Bin` whose children are linked internally and whose
+//! boundary pads are exposed as ghost pads. The caller adds and links the bin
+//! exactly as it would an element. Kept deliberately small: plain Rust types, no
+//! `GObject` registration.
+
 use anyhow::{Context as _, Result, anyhow};
 use gstsmith_app::gst;
 use gstsmith_app::gst::prelude::*;
 
 pub mod source;
+
+/// A reusable pipeline fragment.
+pub trait PipelineBin {
+    /// Build the bin: children added + linked, ghost pads created. The returned
+    /// bin is **not** yet added to a pipeline.
+    ///
+    /// # Errors
+    /// Returns an error if any child element cannot be created, linked, or ghosted.
+    fn build(&self) -> Result<gst::Bin>;
+
+    /// The internal pad whose linking indicates the bin connected, for bins that
+    /// defer a runtime (sometimes-pad) link. `bin` is the just-built bin. Default:
+    /// nothing to watch.
+    ///
+    /// # Errors
+    /// Returns an error if the bin is missing an element this bin expects to have
+    /// created in `build`.
+    fn watch_pad(&self, _bin: &gst::Bin) -> Result<Option<gst::Pad>> {
+        Ok(None)
+    }
+}
 
 pub(crate) fn connect_dynamic(
     src: &gst::Element,
