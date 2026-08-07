@@ -1,15 +1,10 @@
-use std::path::Path;
-use std::sync::Arc;
-
 use anyhow::{Context as _, Result, anyhow};
 use gstreamer_video as gst_video;
 use gstreamer_video::prelude::VideoFrameExt;
 use gstsmith_app::gst;
 use gstsmith_app::gst::prelude::*;
-use tract_onnx::prelude::*;
 
-/// A ready-to-run tract model with a fixed 1x3x320x320 f32 input.
-pub type Model = TypedRunnableModel;
+use crate::infer::Detector;
 
 pub const INPUT: usize = 320;
 
@@ -20,30 +15,47 @@ const STRIDES: [usize; 4] = [8, 16, 32, 64];
 const SCORE_THRESH: f32 = 0.3;
 const NMS_IOU: f32 = 0.6;
 
-static COCO_NAMES: &str = include_str!("coco.names");
+/// Channels per grid point: 80 class scores + 4 sides * 8 distance bins = 112.
+const CHANNELS: usize = NUM_CLASSES + 4 * BINS;
+/// Grid points summed across the `STRIDES` (8/16/32/64): 40²+20²+10²+5² = 2125.
+const POINTS: usize =
+    (INPUT / 8).pow(2) + (INPUT / 16).pow(2) + (INPUT / 32).pow(2) + (INPUT / 64).pow(2);
 
-pub fn load_model(path: &Path) -> Result<Arc<Model>> {
-    let model = tract_onnx::onnx()
-        .model_for_path(path)
-        .with_context(|| format!("loading ONNX model from {}", path.display()))?
-        .with_input_fact(0, f32::fact([1, 3, INPUT, INPUT]).into())
-        .context("setting model input shape to 1x3x320x320")?
-        .into_optimized()
-        .context("optimizing the model graph")?
-        .into_runnable()
-        .context("making the model runnable")?;
-    Ok(model)
-}
+static COCO_NAMES: &str = include_str!("coco.names");
 
 /// Runs detection on the frame carried by `info` and prints each detection.
 /// Returns the number of detections remaining after NMS.
 pub fn run_inference(
     pad: &gst::Pad,
     info: &gst::PadProbeInfo,
-    model: &Arc<Model>,
+    detector: &dyn Detector,
 ) -> Result<usize> {
-    let Some(buffer) = info.buffer() else {
+    let Some(input) = frame_to_input(pad, info)? else {
         return Ok(0);
+    };
+
+    let out = detector.infer(&input).context("running inference")?;
+
+    let detections = decode_nanodet(&out)?;
+    for d in &detections {
+        println!(
+            "{} {:.2} @ [{:.0},{:.0},{:.0},{:.0}]",
+            coco_label(d.class),
+            d.score,
+            d.x1,
+            d.y1,
+            d.x2,
+            d.y2
+        );
+    }
+    Ok(detections.len())
+}
+
+/// Maps the frame carried by `info` into a `NanoDet` NCHW f32 input buffer.
+/// Returns `None` when the probe carries no buffer.
+fn frame_to_input(pad: &gst::Pad, info: &gst::PadProbeInfo) -> Result<Option<Vec<f32>>> {
+    let Some(buffer) = info.buffer() else {
+        return Ok(None);
     };
     let caps = pad
         .current_caps()
@@ -99,30 +111,7 @@ pub fn run_inference(
         }
     }
 
-    let tensor: Tensor = tract_ndarray::Array4::from_shape_vec((1, 3, INPUT, INPUT), input)
-        .context("shaping input tensor")?
-        .into();
-
-    let outputs = model
-        .run(tvec!(tensor.into()))
-        .context("running inference")?;
-    let out = outputs
-        .first()
-        .ok_or_else(|| anyhow!("model produced no output"))?;
-
-    let detections = decode_nanodet(out)?;
-    for d in &detections {
-        println!(
-            "{} {:.2} @ [{:.0},{:.0},{:.0},{:.0}]",
-            coco_label(d.class),
-            d.score,
-            d.x1,
-            d.y1,
-            d.x2,
-            d.y2
-        );
-    }
-    Ok(detections.len())
+    Ok(Some(input))
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -150,20 +139,14 @@ fn integral(v: &[f32]) -> f32 {
         .sum()
 }
 
-fn decode_nanodet(out: &Tensor) -> Result<Vec<Det>> {
-    let arr = out
-        .to_plain_array_view::<f32>()
-        .context("output tensor is not f32")?;
-    let shape = arr.shape();
-    let points = *shape
-        .get(1)
-        .ok_or_else(|| anyhow!("output missing dim 1"))?;
-    let channels = *shape
-        .get(2)
-        .ok_or_else(|| anyhow!("output missing dim 2"))?;
-    let arr = arr
-        .into_shape_with_order((points, channels))
-        .context("reshape output")?;
+fn decode_nanodet(out: &[f32]) -> Result<Vec<Det>> {
+    let expected = POINTS * CHANNELS;
+    if out.len() != expected {
+        return Err(anyhow!(
+            "expected {expected} output values ({POINTS}x{CHANNELS}), got {}",
+            out.len()
+        ));
+    }
 
     let mut dets: Vec<Det> = Vec::new();
     let mut point = 0usize;
@@ -171,7 +154,9 @@ fn decode_nanodet(out: &Tensor) -> Result<Vec<Det>> {
         let grid = INPUT / stride; // 40, 20, 10, 5
         for gy in 0..grid {
             for gx in 0..grid {
-                let row = arr.row(point);
+                let row = out
+                    .get(point * CHANNELS..point * CHANNELS + CHANNELS)
+                    .ok_or_else(|| anyhow!("row {point} out of bounds"))?;
                 point += 1;
 
                 let mut best_c = 0usize;

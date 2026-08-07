@@ -12,10 +12,12 @@ use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 mod bins;
+mod infer;
 mod nanodet;
 
 use crate::bins::PipelineBin;
 use crate::bins::source::Source;
+use crate::infer::{Detector, Runtime};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 enum Pace {
@@ -59,6 +61,10 @@ struct Cli {
     /// Frame pacing: auto (file=realtime, live=fast), fast, realtime, or full.
     #[arg(long, value_enum, default_value_t = Pace::Auto)]
     pace: Pace,
+
+    /// Inference backend: tract (pure Rust) or ort (ONNX Runtime).
+    #[arg(long, value_enum, default_value_t = Runtime::Tract)]
+    runtime: Runtime,
 }
 
 #[tokio::main]
@@ -78,8 +84,8 @@ async fn main() -> Result<()> {
             cli.model.display()
         );
     }
-    info!(model = %cli.model.display(), "loading NanoDet model");
-    let model = nanodet::load_model(&cli.model)?;
+    info!(model = %cli.model.display(), runtime = ?cli.runtime, "loading NanoDet model");
+    let model = infer::load(cli.runtime, &cli.model)?;
     info!("model loaded");
 
     info!("initializing GStreamer");
@@ -214,7 +220,7 @@ fn build_pipeline(source: &Source, pace: Pace) -> Result<(gst::Pipeline, Option<
 fn install_frame_probe(
     pipeline: &gst::Pipeline,
     element_name: &str,
-    model: Arc<nanodet::Model>,
+    model: Arc<dyn Detector>,
 ) -> Result<()> {
     let element = pipeline
         .by_name(element_name)
@@ -230,7 +236,7 @@ fn install_frame_probe(
 
     src_pad.add_probe(gst::PadProbeType::BUFFER, move |pad, info| {
         let t0 = Instant::now();
-        let result = nanodet::run_inference(pad, info, &model);
+        let result = nanodet::run_inference(pad, info, model.as_ref());
         let dt = t0.elapsed();
         match result {
             Ok(n) => {
