@@ -11,7 +11,10 @@ use gstsmith_app::{PipelineRunner, gst};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
+mod bins;
 mod nanodet;
+
+use crate::bins::source::Source;
 
 #[derive(Debug, Parser)]
 #[command(version, about = "Run a GStreamer video detection pipeline")]
@@ -23,6 +26,10 @@ struct Cli {
         default_value = "crates/slik/models/nanodet-plus-m-320.onnx"
     )]
     model: PathBuf,
+
+    /// Video source: empty/"test" = test pattern, a file path, or an rtsp:// URL.
+    #[arg(long, value_name = "URI")]
+    source: Option<String>,
 }
 
 #[tokio::main]
@@ -51,12 +58,26 @@ async fn main() -> Result<()> {
     info!("registering plugins");
     register_plugins()?;
 
+    let source = Source::parse(cli.source.as_deref());
     info!("building pipeline");
-    let pipeline = build_pipeline()?;
+    let (pipeline, watch) = build_pipeline(&source)?;
     info!("installing frame probe");
     install_frame_probe(&pipeline, "infer", Arc::clone(&model))?;
     info!(build = env!("SLIK_GIT_HASH"), "starting pipeline");
-    let exit = PipelineRunner::new(pipeline).run(shutdown_signal()).await?;
+
+    let shutdown = async move {
+        match watch {
+            Some(pad) => {
+                tokio::select! {
+                    _ = shutdown_signal() => {}
+                    _ = link_watchdog(pad, Duration::from_secs(10)) => {}
+                }
+            }
+            None => shutdown_signal().await,
+        }
+    };
+
+    let exit = PipelineRunner::new(pipeline).run(shutdown).await?;
 
     info!(?exit, build = env!("SLIK_GIT_HASH"), "pipeline stopped");
     Ok(())
@@ -72,17 +93,14 @@ fn register_plugins() -> Result<()> {
     Ok(())
 }
 
-fn make(factory: &str, name: &str) -> Result<gst::Element> {
+pub(crate) fn make(factory: &str, name: &str) -> Result<gst::Element> {
     gst::ElementFactory::make(factory)
         .name(name)
         .build()
         .with_context(|| format!("creating element '{factory}' (named '{name}')"))
 }
 
-fn build_pipeline() -> Result<gst::Pipeline> {
-    let source = make("videotestsrc", "source")?;
-    source.set_property("is-live", true);
-
+fn build_pipeline(source: &Source) -> Result<(gst::Pipeline, Option<gst::Pad>)> {
     let crop = make("videocrop", "crop")?;
 
     let scale = make("videoscale", "scale")?;
@@ -113,9 +131,11 @@ fn build_pipeline() -> Result<gst::Pipeline> {
     sink.set_property("sync", false);
 
     let pipeline = gst::Pipeline::with_name("slik");
+
+    let (source_bin, watch) = source.build_watched()?;
+    pipeline.add(&source_bin).context("adding source bin")?;
     pipeline
         .add_many([
-            &source,
             &crop,
             &scale,
             &convert,
@@ -125,8 +145,11 @@ fn build_pipeline() -> Result<gst::Pipeline> {
             &sink,
         ])
         .context("adding pipeline elements")?;
+
+    source_bin
+        .link(&crop)
+        .context("linking source bin -> videocrop")?;
     gst::Element::link_many([
-        &source,
         &crop,
         &scale,
         &convert,
@@ -137,7 +160,7 @@ fn build_pipeline() -> Result<gst::Pipeline> {
     ])
     .context("linking the detection preprocessing chain")?;
 
-    Ok(pipeline)
+    Ok((pipeline, watch))
 }
 
 /// Attach a buffer probe to `element`'s src pad that runs `NanoDet` detection on
@@ -190,18 +213,26 @@ async fn shutdown_signal() {
     }
 }
 
+/// Completes (triggering shutdown) if `pad` is still unlinked after `timeout`.
+async fn link_watchdog(pad: gst::Pad, timeout: Duration) {
+    tokio::time::sleep(timeout).await;
+    if pad.is_linked() {
+        std::future::pending::<()>().await;
+    } else {
+        eprintln!("source did not connect within {timeout:?}; shutting down");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn builds_the_detection_pipeline() {
+    fn builds_test_source_pipeline() {
         gstsmith_app::init().expect("GStreamer should initialize");
-
-        let pipeline = build_pipeline().expect("pipeline should build");
-
-        assert!(pipeline.by_name("source").is_some());
+        let (pipeline, watch) = build_pipeline(&Source::Test).expect("pipeline builds");
+        assert!(pipeline.by_name("source-bin").is_some());
         assert!(pipeline.by_name("infer").is_some());
-        assert!(pipeline.by_name("sink").is_some());
+        assert!(watch.is_none(), "static source needs no watchdog");
     }
 }
