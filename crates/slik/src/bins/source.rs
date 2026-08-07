@@ -4,8 +4,12 @@ use anyhow::{Context as _, Result, anyhow};
 use gstsmith_app::gst;
 use gstsmith_app::gst::prelude::*;
 
-use super::{connect_dynamic, ghost_src};
+use super::{PipelineBin, connect_dynamic, ghost_src};
 use crate::make;
+
+// Element names used to build and re-find watch pads — single-sourced.
+const FILE_TAIL: &str = "source-convert"; // videoconvert; deferred-link target for File
+const RTSP_DEPAY: &str = "depay"; // rtph264depay; deferred-link target for Rtsp
 
 #[derive(Debug, Clone)]
 pub(crate) enum Source {
@@ -22,8 +26,10 @@ impl Source {
             Some(path) => Source::File(PathBuf::from(path)),
         }
     }
+}
 
-    pub(crate) fn build_watched(&self) -> Result<(gst::Bin, Option<gst::Pad>)> {
+impl PipelineBin for Source {
+    fn build(&self) -> Result<gst::Bin> {
         let bin = gst::Bin::with_name("source-bin");
         match self {
             Source::Test => {
@@ -31,7 +37,7 @@ impl Source {
                 src.set_property("is-live", true);
                 bin.add(&src).context("adding videotestsrc")?;
                 ghost_src(&bin, &src)?;
-                Ok((bin, None))
+                Ok(bin)
             }
             Source::File(path) => {
                 let src = make("filesrc", "source")?;
@@ -44,7 +50,7 @@ impl Source {
                 // forces a hardware decoder (e.g. macOS vtdechw, which otherwise emits
                 // video/x-raw(memory:GLMemory)) to negotiate CPU-accessible buffers the
                 // downstream videocrop/videoscale chain can consume.
-                let convert = make("videoconvert", "source-convert")?;
+                let convert = make("videoconvert", FILE_TAIL)?;
                 bin.add_many([&src, &dec, &convert])
                     .context("adding filesrc ! decodebin ! videoconvert")?;
                 gst::Element::link_many([&src, &dec]).context("linking filesrc ! decodebin")?;
@@ -55,12 +61,12 @@ impl Source {
                 let want = gst::Caps::builder("video/x-raw").any_features().build();
                 connect_dynamic(
                     &dec,
-                    convert_sink.clone(),
+                    convert_sink,
                     Some(want),
                     "decodebin -> convert".to_owned(),
                 )?;
                 ghost_src(&bin, &convert)?;
-                Ok((bin, Some(convert_sink)))
+                Ok(bin)
             }
             Source::Rtsp(url) => {
                 let src = make("rtspsrc", "source")?;
@@ -78,7 +84,7 @@ impl Source {
                     Some(is_video.to_value())
                 });
 
-                let depay = make("rtph264depay", "depay")?;
+                let depay = make("rtph264depay", RTSP_DEPAY)?;
                 let parse = make("h264parse", "parse")?;
                 let dec = make("avdec_h264", "decode")?;
                 bin.add_many([&src, &depay, &parse, &dec])
@@ -92,16 +98,26 @@ impl Source {
                 let want = gst::Caps::builder("application/x-rtp")
                     .field("media", "video")
                     .build();
-                connect_dynamic(
-                    &src,
-                    depay_sink.clone(),
-                    Some(want),
-                    "rtspsrc -> depay".to_owned(),
-                )?;
+                connect_dynamic(&src, depay_sink, Some(want), "rtspsrc -> depay".to_owned())?;
                 ghost_src(&bin, &dec)?;
-                Ok((bin, Some(depay_sink)))
+                Ok(bin)
             }
         }
+    }
+
+    fn watch_pad(&self, bin: &gst::Bin) -> Result<Option<gst::Pad>> {
+        let name = match self {
+            Source::Test => return Ok(None),
+            Source::File(_) => FILE_TAIL,
+            Source::Rtsp(_) => RTSP_DEPAY,
+        };
+        let elem = bin
+            .by_name(name)
+            .ok_or_else(|| anyhow!("source bin missing element '{name}' to watch"))?;
+        let pad = elem
+            .static_pad("sink")
+            .ok_or_else(|| anyhow!("element '{name}' has no sink pad to watch"))?;
+        Ok(Some(pad))
     }
 }
 
@@ -125,16 +141,29 @@ mod tests {
     }
 
     #[test]
-    fn rtsp_source_bin_has_ghost_src_and_unlinked_watch_pad() {
+    fn rtsp_bin_builds_with_ghost_src_and_watch_pad() {
         gstsmith_app::init().expect("GStreamer should initialize");
-        let (bin, watch) = Source::Rtsp("rtsp://example/stream".to_owned())
-            .build_watched()
-            .expect("source bin builds");
+        let source = Source::Rtsp("rtsp://example/stream".to_owned());
+        let bin = source.build().expect("source bin builds");
         assert!(
             bin.static_pad("src").is_some(),
             "bin exposes a ghost src pad"
         );
-        let watch = watch.expect("dynamic source has a watch pad");
+        let watch = source
+            .watch_pad(&bin)
+            .expect("watch_pad ok")
+            .expect("rtsp has a watch pad");
         assert!(!watch.is_linked(), "watch pad starts unlinked");
+    }
+
+    #[test]
+    fn test_source_has_no_watch_pad() {
+        gstsmith_app::init().expect("GStreamer should initialize");
+        let source = Source::Test;
+        let bin = source.build().expect("source bin builds");
+        assert!(
+            source.watch_pad(&bin).expect("watch_pad ok").is_none(),
+            "test source: nothing to watch"
+        );
     }
 }

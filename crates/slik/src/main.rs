@@ -14,6 +14,7 @@ use tracing_subscriber::EnvFilter;
 mod bins;
 mod nanodet;
 
+use crate::bins::PipelineBin;
 use crate::bins::source::Source;
 
 #[derive(Debug, Parser)]
@@ -132,7 +133,8 @@ fn build_pipeline(source: &Source) -> Result<(gst::Pipeline, Option<gst::Pad>)> 
 
     let pipeline = gst::Pipeline::with_name("slik");
 
-    let (source_bin, watch) = source.build_watched()?;
+    let source_bin = source.build()?;
+    let watch = source.watch_pad(&source_bin)?;
     pipeline.add(&source_bin).context("adding source bin")?;
     pipeline
         .add_many([
