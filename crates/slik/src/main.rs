@@ -179,19 +179,30 @@ fn install_frame_probe(
 
     let frames = Arc::new(AtomicU64::new(0));
     let detections = Arc::new(AtomicU64::new(0));
+    let run_us = Arc::new(AtomicU64::new(0));
     let last_beat = Arc::new(Mutex::new(Instant::now()));
 
     src_pad.add_probe(gst::PadProbeType::BUFFER, move |pad, info| {
-        match nanodet::run_inference(pad, info, &model) {
+        let t0 = Instant::now();
+        let result = nanodet::run_inference(pad, info, &model);
+        let dt = t0.elapsed();
+        match result {
             Ok(n) => {
                 let f = frames.fetch_add(1, Relaxed) + 1;
                 detections.fetch_add(u64::try_from(n).unwrap_or(u64::MAX), Relaxed);
+                let dt_us = u64::try_from(dt.as_micros()).unwrap_or(u64::MAX);
+                let total_us = run_us.fetch_add(dt_us, Relaxed) + dt_us;
                 if let Ok(mut beat) = last_beat.lock()
                     && (f == 1 || beat.elapsed() >= Duration::from_secs(1))
                 {
+                    let infer_ms = dt.as_secs_f64() * 1000.0;
+                    // Integer average (µs → ms, no float cast) to satisfy clippy::cast_precision_loss.
+                    let avg_infer_ms = total_us / 1000 / f;
                     info!(
                         frames = frames.load(Relaxed),
                         detections = detections.load(Relaxed),
+                        infer_ms,
+                        avg_infer_ms,
                         "pipeline running"
                     );
                     *beat = Instant::now();
