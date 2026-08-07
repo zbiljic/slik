@@ -26,6 +26,10 @@ run = "cargo test --locked --workspace --all-targets"
 description = "Build workspace crates and binaries"
 run = "cargo build --locked --workspace --all-targets"
 
+[tasks."rust:build:release"]
+description = "Build workspace binaries in release mode"
+run = "cargo build --locked --release --workspace"
+
 [tasks."rust:clean"]
 description = "Remove Rust build artifacts"
 run = "cargo clean"

@@ -2,3 +2,8 @@
 description = "Build the project"
 alias = "b"
 depends = ["rust:build"]
+
+[tasks."build:release"]
+description = "Build the project in release mode"
+alias = "br"
+depends = ["rust:build:release"]
