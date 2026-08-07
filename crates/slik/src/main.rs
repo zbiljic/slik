@@ -241,7 +241,7 @@ fn install_frame_probe(
                 if let Ok(mut beat) = last_beat.lock()
                     && (f == 1 || beat.elapsed() >= Duration::from_secs(1))
                 {
-                    let infer_ms = dt.as_secs_f64() * 1000.0;
+                    let infer_ms = (dt.as_secs_f64() * 1000.0 * 100.0).round() / 100.0;
                     // Integer average (µs → ms, no float cast) to satisfy clippy::cast_precision_loss.
                     let avg_infer_ms = total_us / 1000 / f;
                     info!(
