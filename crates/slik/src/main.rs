@@ -17,6 +17,30 @@ mod nanodet;
 use crate::bins::PipelineBin;
 use crate::bins::source::Source;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum Pace {
+    /// Per source: file = realtime, test/rtsp = fast.
+    Auto,
+    /// Leaky queue, sink sync off — sample the freshest frame, race a file to EOS.
+    Fast,
+    /// Pace to the source's real frame rate, still dropping to the freshest frame.
+    Realtime,
+    /// Process every frame; throttle the decoder to inference speed.
+    Full,
+}
+
+impl Pace {
+    fn resolve(self, source: &Source) -> Pace {
+        match self {
+            Pace::Auto => match source {
+                Source::File(_) => Pace::Realtime,
+                Source::Test | Source::Rtsp(_) => Pace::Fast,
+            },
+            other => other,
+        }
+    }
+}
+
 #[derive(Debug, Parser)]
 #[command(version, about = "Run a GStreamer video detection pipeline")]
 struct Cli {
@@ -31,6 +55,10 @@ struct Cli {
     /// Video source: empty/"test" = test pattern, a file path, or an rtsp:// URL.
     #[arg(long, value_name = "URI")]
     source: Option<String>,
+
+    /// Frame pacing: auto (file=realtime, live=fast), fast, realtime, or full.
+    #[arg(long, value_enum, default_value_t = Pace::Auto)]
+    pace: Pace,
 }
 
 #[tokio::main]
@@ -60,8 +88,10 @@ async fn main() -> Result<()> {
     register_plugins()?;
 
     let source = Source::parse(cli.source.as_deref());
+    let pace = cli.pace.resolve(&source);
+    info!(?pace, "frame pacing");
     info!("building pipeline");
-    let (pipeline, watch) = build_pipeline(&source)?;
+    let (pipeline, watch) = build_pipeline(&source, pace)?;
     info!("installing frame probe");
     install_frame_probe(&pipeline, "infer", Arc::clone(&model))?;
     info!(build = env!("SLIK_GIT_HASH"), "starting pipeline");
@@ -101,7 +131,7 @@ pub(crate) fn make(factory: &str, name: &str) -> Result<gst::Element> {
         .with_context(|| format!("creating element '{factory}' (named '{name}')"))
 }
 
-fn build_pipeline(source: &Source) -> Result<(gst::Pipeline, Option<gst::Pad>)> {
+fn build_pipeline(source: &Source, pace: Pace) -> Result<(gst::Pipeline, Option<gst::Pad>)> {
     let crop = make("videocrop", "crop")?;
 
     let scale = make("videoscale", "scale")?;
@@ -120,8 +150,12 @@ fn build_pipeline(source: &Source) -> Result<(gst::Pipeline, Option<gst::Pad>)> 
     capsfilter.set_property("caps", &caps);
 
     let queue = make("queue", "throttle")?;
-    // Drop the oldest buffers so the probe always sees the freshest frame.
-    queue.set_property_from_str("leaky", "downstream");
+    let leaky = if pace == Pace::Full {
+        "no"
+    } else {
+        "downstream"
+    };
+    queue.set_property_from_str("leaky", leaky);
     queue.set_property("max-size-buffers", 1u32);
     queue.set_property("max-size-time", 0u64);
     queue.set_property("max-size-bytes", 0u32);
@@ -148,9 +182,19 @@ fn build_pipeline(source: &Source) -> Result<(gst::Pipeline, Option<gst::Pad>)> 
         ])
         .context("adding pipeline elements")?;
 
-    source_bin
-        .link(&crop)
-        .context("linking source bin -> videocrop")?;
+    if pace == Pace::Realtime {
+        let paced = make("identity", "pace")?;
+        paced.set_property("sync", true);
+        pipeline.add(&paced).context("adding pace identity")?;
+        source_bin
+            .link(&paced)
+            .context("linking source bin -> pace")?;
+        paced.link(&crop).context("linking pace -> videocrop")?;
+    } else {
+        source_bin
+            .link(&crop)
+            .context("linking source bin -> videocrop")?;
+    }
     gst::Element::link_many([
         &crop,
         &scale,
@@ -241,11 +285,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pace_auto_resolves_per_source() {
+        assert_eq!(Pace::Auto.resolve(&Source::Test), Pace::Fast);
+        assert_eq!(
+            Pace::Auto.resolve(&Source::File("/x.mp4".into())),
+            Pace::Realtime
+        );
+        assert_eq!(
+            Pace::Auto.resolve(&Source::Rtsp("rtsp://x".into())),
+            Pace::Fast
+        );
+        assert_eq!(
+            Pace::Full.resolve(&Source::File("/x.mp4".into())),
+            Pace::Full
+        );
+    }
+
+    #[test]
     fn builds_test_source_pipeline() {
         gstsmith_app::init().expect("GStreamer should initialize");
-        let (pipeline, watch) = build_pipeline(&Source::Test).expect("pipeline builds");
+        let (pipeline, watch) = build_pipeline(&Source::Test, Pace::Fast).expect("pipeline builds");
         assert!(pipeline.by_name("source-bin").is_some());
         assert!(pipeline.by_name("infer").is_some());
         assert!(watch.is_none(), "static source needs no watchdog");
+    }
+
+    #[test]
+    fn realtime_inserts_pace_element() {
+        gstsmith_app::init().expect("GStreamer should initialize");
+        let (pipeline, _) = build_pipeline(&Source::File("/x.mp4".into()), Pace::Realtime)
+            .expect("pipeline builds");
+        assert!(
+            pipeline.by_name("pace").is_some(),
+            "realtime inserts a pace identity"
+        );
+        let (pipeline, _) =
+            build_pipeline(&Source::File("/x.mp4".into()), Pace::Fast).expect("pipeline builds");
+        assert!(
+            pipeline.by_name("pace").is_none(),
+            "fast has no pace element"
+        );
     }
 }
