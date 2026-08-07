@@ -17,7 +17,7 @@ pub(crate) struct OrtDetector {
 }
 
 impl OrtDetector {
-    pub(crate) fn load(path: &Path) -> Result<Self> {
+    pub(crate) fn load(path: &Path, threads: Option<usize>) -> Result<Self> {
         // The builder-configuration methods return `ort::Error<SessionBuilder>`
         // (carrying the builder back for recovery), which is not `Send + Sync`, so
         // `anyhow::Context` does not apply — map their `Display` instead.
@@ -25,6 +25,11 @@ impl OrtDetector {
             .context("creating ort session builder")?
             .with_optimization_level(GraphOptimizationLevel::Level3)
             .map_err(|e| anyhow!("setting ort optimization level: {e}"))?;
+        if let Some(n) = threads {
+            builder = builder
+                .with_intra_threads(n)
+                .map_err(|e| anyhow!("setting ort intra-op thread count: {e}"))?;
+        }
         let session = builder
             .commit_from_file(path)
             .with_context(|| format!("loading ONNX model from {}", path.display()))?;

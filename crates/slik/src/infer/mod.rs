@@ -31,10 +31,11 @@ pub enum Runtime {
     Ort,
 }
 
-/// Load `path` with the selected `runtime`.
-pub fn load(runtime: Runtime, path: &Path) -> Result<Arc<dyn Detector>> {
+/// Load `path` with the selected `runtime`. `threads` sets ort's intra-op thread
+/// count (`None` = ort's default); it is ignored by tract.
+pub fn load(runtime: Runtime, path: &Path, threads: Option<usize>) -> Result<Arc<dyn Detector>> {
     match runtime {
         Runtime::Tract => Ok(Arc::new(tract::TractDetector::load(path)?)),
-        Runtime::Ort => Ok(Arc::new(ort::OrtDetector::load(path)?)),
+        Runtime::Ort => Ok(Arc::new(ort::OrtDetector::load(path, threads)?)),
     }
 }

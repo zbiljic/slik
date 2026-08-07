@@ -65,6 +65,10 @@ struct Cli {
     /// Inference backend: tract (pure Rust) or ort (ONNX Runtime).
     #[arg(long, value_enum, default_value_t = Runtime::Tract)]
     runtime: Runtime,
+
+    /// Intra-op thread count for the ort backend (ignored by tract). Default: ort's own.
+    #[arg(long, value_name = "N")]
+    threads: Option<usize>,
 }
 
 #[tokio::main]
@@ -84,8 +88,8 @@ async fn main() -> Result<()> {
             cli.model.display()
         );
     }
-    info!(model = %cli.model.display(), runtime = ?cli.runtime, "loading NanoDet model");
-    let model = infer::load(cli.runtime, &cli.model)?;
+    info!(model = %cli.model.display(), runtime = ?cli.runtime, threads = ?cli.threads, "loading NanoDet model");
+    let model = infer::load(cli.runtime, &cli.model, cli.threads)?;
     info!("model loaded");
 
     info!("initializing GStreamer");
