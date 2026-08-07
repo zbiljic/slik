@@ -20,11 +20,13 @@ ort = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tract-metal = { workspace = true, optional = true }
 tract-onnx = { workspace = true }
 
 [features]
 default = []
 coreml = ["ort/coreml"]
+metal = ["dep:tract-metal"]
 
 [lints]
 workspace = true

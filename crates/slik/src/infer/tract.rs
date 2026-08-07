@@ -14,17 +14,43 @@ pub(crate) struct TractDetector {
 
 impl TractDetector {
     pub(crate) fn load(path: &Path) -> Result<Self> {
-        let model = tract_onnx::onnx()
-            .model_for_path(path)
-            .with_context(|| format!("loading ONNX model from {}", path.display()))?
-            .with_input_fact(0, f32::fact([1, 3, INPUT, INPUT]).into())
-            .context("setting model input shape to 1x3x320x320")?
+        let model = typed_model(path)?
             .into_optimized()
             .context("optimizing the model graph")?
             .into_runnable()
             .context("making the model runnable")?;
         Ok(Self { model })
     }
+
+    /// Load with tract's Metal GPU backend (Apple). Metal kernels dispatch through
+    /// a thread-local stream initialized lazily on first use.
+    #[cfg(feature = "metal")]
+    pub(crate) fn load_metal(path: &Path) -> Result<Self> {
+        use tract_metal::MetalTransform;
+        use tract_onnx::tract_core::transform::ModelTransform;
+
+        let mut model = typed_model(path)?;
+        MetalTransform::default()
+            .transform(&mut model)
+            .context("applying the Metal transform")?;
+        let model = model
+            .into_optimized()
+            .context("optimizing the Metal model graph")?
+            .into_runnable()
+            .context("making the Metal model runnable")?;
+        Ok(Self { model })
+    }
+}
+
+/// Parse `path` into an unoptimized typed model with a fixed 1x3x320x320 input.
+fn typed_model(path: &Path) -> Result<TypedModel> {
+    tract_onnx::onnx()
+        .model_for_path(path)
+        .with_context(|| format!("loading ONNX model from {}", path.display()))?
+        .with_input_fact(0, f32::fact([1, 3, INPUT, INPUT]).into())
+        .context("setting model input shape to 1x3x320x320")?
+        .into_typed()
+        .context("converting to a typed model graph")
 }
 
 impl Detector for TractDetector {

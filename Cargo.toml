@@ -22,6 +22,7 @@ ort = "=2.0.0-rc.13"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tract-metal = "0.23"
 tract-onnx = "0.23"
 
 [workspace.lints.rust]

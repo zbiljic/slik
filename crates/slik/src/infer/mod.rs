@@ -25,8 +25,10 @@ pub trait Detector: Send + Sync {
 /// Inference backend selected on the command line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Runtime {
-    /// Pure-Rust `tract` runtime.
+    /// Pure-Rust `tract` runtime on the CPU.
     Tract,
+    /// `tract` with its Metal GPU backend (Apple; requires the `metal` feature).
+    TractMetal,
     /// ONNX Runtime via the `ort` crate on the CPU.
     Ort,
     /// ONNX Runtime with the `CoreML` execution provider (Apple; requires the
@@ -35,10 +37,21 @@ pub enum Runtime {
 }
 
 /// Load `path` with the selected `runtime`. `threads` sets ort's intra-op thread
-/// count (`None` = ort's default); it is ignored by tract.
+/// count (`None` = ort's default); it is ignored by the tract backends.
 pub fn load(runtime: Runtime, path: &Path, threads: Option<usize>) -> Result<Arc<dyn Detector>> {
     match runtime {
         Runtime::Tract => Ok(Arc::new(tract::TractDetector::load(path)?)),
+        Runtime::TractMetal => {
+            #[cfg(feature = "metal")]
+            {
+                Ok(Arc::new(tract::TractDetector::load_metal(path)?))
+            }
+            #[cfg(not(feature = "metal"))]
+            {
+                let _ = path;
+                anyhow::bail!("this build lacks the 'metal' feature; rebuild with --features metal")
+            }
+        }
         Runtime::Ort => Ok(Arc::new(ort::OrtDetector::load(path, threads)?)),
         Runtime::OrtCoreml => {
             #[cfg(feature = "coreml")]
