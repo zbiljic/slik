@@ -16,11 +16,11 @@ run = "cargo fmt-toml --check"
 
 [tasks."sort:crates"]
 description = "Sort workspace dependencies"
-run = "cargo sort --workspace --grouped"
+run = "cargo sort --workspace --grouped --order package,dependencies,features"
 
 [tasks."sort:crates:check"]
 description = "Check workspace dependency ordering"
-run = "cargo sort --workspace --grouped --check"
+run = "cargo sort --workspace --grouped --order package,dependencies,features --check"
 
 [tasks.lint]
 description = "Run all lint checks"
