@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
+mod ort;
 mod tract;
 
 /// A loaded, ready-to-run detection model with a fixed 1x3x320x320 f32 input.
@@ -26,11 +27,14 @@ pub trait Detector: Send + Sync {
 pub enum Runtime {
     /// Pure-Rust `tract` runtime.
     Tract,
+    /// ONNX Runtime via the `ort` crate.
+    Ort,
 }
 
 /// Load `path` with the selected `runtime`.
 pub fn load(runtime: Runtime, path: &Path) -> Result<Arc<dyn Detector>> {
     match runtime {
         Runtime::Tract => Ok(Arc::new(tract::TractDetector::load(path)?)),
+        Runtime::Ort => Ok(Arc::new(ort::OrtDetector::load(path)?)),
     }
 }

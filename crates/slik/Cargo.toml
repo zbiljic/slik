@@ -16,6 +16,7 @@ gstconsole = { workspace = true }
 gstlines = { workspace = true }
 gstreamer-video = { workspace = true }
 gstsmith-app = { workspace = true }
+ort = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
