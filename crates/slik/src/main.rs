@@ -19,6 +19,8 @@ use crate::bins::PipelineBin;
 use crate::bins::source::Source;
 use crate::infer::{Detector, Runtime};
 
+const DEFAULT_LOG_FILTER: &str = "warn,slik=info,ort=error";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 enum Pace {
     /// Per source: file = realtime, test/rtsp = fast.
@@ -75,7 +77,8 @@ struct Cli {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER)),
         )
         .with_writer(std::io::stderr)
         .init();
@@ -302,6 +305,9 @@ async fn link_watchdog(pad: gst::Pad, timeout: Duration, diagnostic: &str) {
 
 #[cfg(test)]
 mod tests {
+    use tracing::Level;
+    use tracing_subscriber::prelude::*;
+
     use super::*;
 
     struct FailingDetector;
@@ -310,6 +316,17 @@ mod tests {
         fn infer(&self, _input: &[f32]) -> Result<Vec<f32>> {
             anyhow::bail!("fake detector failure")
         }
+    }
+
+    #[test]
+    fn default_log_filter_focuses_on_application_events() {
+        let subscriber = tracing_subscriber::registry().with(EnvFilter::new(DEFAULT_LOG_FILTER));
+
+        tracing::subscriber::with_default(subscriber, || {
+            assert!(tracing::enabled!(target: "slik", Level::INFO));
+            assert!(!tracing::enabled!(target: "ort::logging", Level::INFO));
+            assert!(!tracing::enabled!(target: "ort::logging", Level::WARN));
+        });
     }
 
     #[test]
