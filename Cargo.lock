@@ -796,7 +796,7 @@ dependencies = [
 [[package]]
 name = "gstsmith-app"
 version = "0.1.0"
-source = "git+https://github.com/zbiljic/gstsmith-app-rs?branch=main#4dbb8fa4f148018fdc46a0d23a9ca9556d923961"
+source = "git+https://github.com/zbiljic/gstsmith-app-rs?branch=main#f1e5dc699113fe6ccdcecfe7342009e508a1f4c0"
 dependencies = [
  "anyhow",
  "futures",
