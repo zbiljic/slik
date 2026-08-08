@@ -50,14 +50,12 @@ pub(crate) fn connect_dynamic(
         );
     }
 
-    src.connect_pad_added(move |_src, pad| {
+    src.connect_pad_added(move |src, pad| {
         if pad.direction() != gst::PadDirection::Src {
             return;
         }
         if let Some(want) = &want_caps {
-            let Some(have) = pad.current_caps() else {
-                return;
-            };
+            let have = pad.current_caps().unwrap_or_else(|| pad.query_caps(None));
             if !have.can_intersect(want) {
                 return;
             }
@@ -66,7 +64,11 @@ pub(crate) fn connect_dynamic(
             return;
         }
         if let Err(err) = pad.link(&sink_pad) {
-            eprintln!("failed to link dynamic pad for {label}: {err}");
+            gst::element_error!(
+                src,
+                gst::CoreError::Negotiation,
+                ["failed to link dynamic pad for {label}: {err}"]
+            );
         }
     });
 

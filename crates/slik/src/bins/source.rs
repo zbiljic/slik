@@ -28,6 +28,18 @@ impl Source {
     }
 }
 
+fn is_h264_video_rtp(caps: &gst::Caps) -> bool {
+    caps.iter().any(|structure| {
+        structure.name() == "application/x-rtp"
+            && structure
+                .get::<String>("media")
+                .is_ok_and(|media| media == "video")
+            && structure
+                .get::<String>("encoding-name")
+                .is_ok_and(|encoding| encoding.eq_ignore_ascii_case("H264"))
+    })
+}
+
 impl PipelineBin for Source {
     fn build(&self) -> Result<gst::Bin> {
         let bin = gst::Bin::with_name("source-bin");
@@ -73,15 +85,11 @@ impl PipelineBin for Source {
                 src.set_property("location", url.as_str());
                 src.set_property_from_str("protocols", "tcp");
                 src.connect("select-stream", false, |args| {
-                    let is_video = args
+                    let is_supported = args
                         .get(2)
                         .and_then(|v| v.get::<gst::Caps>().ok())
-                        .and_then(|caps| {
-                            caps.structure(0)
-                                .and_then(|s| s.get::<String>("media").ok())
-                        })
-                        .is_some_and(|media| media == "video");
-                    Some(is_video.to_value())
+                        .is_some_and(|caps| is_h264_video_rtp(&caps));
+                    Some(is_supported.to_value())
                 });
 
                 let depay = make("rtph264depay", RTSP_DEPAY)?;
@@ -97,6 +105,7 @@ impl PipelineBin for Source {
                     .ok_or_else(|| anyhow!("rtph264depay has no sink pad"))?;
                 let want = gst::Caps::builder("application/x-rtp")
                     .field("media", "video")
+                    .field("encoding-name", "H264")
                     .build();
                 connect_dynamic(&src, depay_sink, Some(want), "rtspsrc -> depay".to_owned())?;
                 ghost_src(&bin, &dec)?;
@@ -124,6 +133,35 @@ impl PipelineBin for Source {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rtp_caps(media: &str, encoding: Option<&str>) -> gst::Caps {
+        gstsmith_app::init().expect("GStreamer should initialize");
+        let builder = gst::Caps::builder("application/x-rtp").field("media", media);
+        match encoding {
+            Some(encoding) => builder.field("encoding-name", encoding).build(),
+            None => builder.build(),
+        }
+    }
+
+    #[test]
+    fn accepts_h264_video_rtp_caps() {
+        assert!(is_h264_video_rtp(&rtp_caps("video", Some("h264"))));
+    }
+
+    #[test]
+    fn rejects_h265_video_rtp_caps() {
+        assert!(!is_h264_video_rtp(&rtp_caps("video", Some("H265"))));
+    }
+
+    #[test]
+    fn rejects_audio_rtp_caps() {
+        assert!(!is_h264_video_rtp(&rtp_caps("audio", Some("H264"))));
+    }
+
+    #[test]
+    fn rejects_rtp_caps_without_encoding_name() {
+        assert!(!is_h264_video_rtp(&rtp_caps("video", None)));
+    }
 
     #[test]
     fn parses_source_uris() {

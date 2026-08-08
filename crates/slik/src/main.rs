@@ -54,7 +54,7 @@ struct Cli {
     )]
     model: PathBuf,
 
-    /// Video source: empty/"test" = test pattern, a file path, or an rtsp:// URL.
+    /// Video source: empty/"test" = test pattern, a file path, or an rtsp:// URL carrying H.264 video over RTP.
     #[arg(long, value_name = "URI")]
     source: Option<String>,
 
@@ -98,6 +98,10 @@ async fn main() -> Result<()> {
     register_plugins()?;
 
     let source = Source::parse(cli.source.as_deref());
+    let watchdog_label = match source {
+        Source::Rtsp(_) => "rtsp source did not provide a supported H.264 video RTP stream",
+        Source::Test | Source::File(_) => "source did not connect",
+    };
     let pace = cli.pace.resolve(&source);
     info!(?pace, "frame pacing");
     info!("building pipeline");
@@ -111,7 +115,7 @@ async fn main() -> Result<()> {
             Some(pad) => {
                 tokio::select! {
                     _ = shutdown_signal() => {}
-                    _ = link_watchdog(pad, Duration::from_secs(10)) => {}
+                    _ = link_watchdog(pad, Duration::from_secs(10), watchdog_label) => {}
                 }
             }
             None => shutdown_signal().await,
@@ -287,12 +291,12 @@ async fn shutdown_signal() {
 }
 
 /// Completes (triggering shutdown) if `pad` is still unlinked after `timeout`.
-async fn link_watchdog(pad: gst::Pad, timeout: Duration) {
+async fn link_watchdog(pad: gst::Pad, timeout: Duration, diagnostic: &str) {
     tokio::time::sleep(timeout).await;
     if pad.is_linked() {
         std::future::pending::<()>().await;
     } else {
-        eprintln!("source did not connect within {timeout:?}; shutting down");
+        eprintln!("{diagnostic} within {timeout:?}; shutting down");
     }
 }
 
