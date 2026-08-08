@@ -8,7 +8,7 @@ use anyhow::{Context as _, Result, anyhow};
 use clap::Parser;
 use gstsmith_app::gst::prelude::*;
 use gstsmith_app::{PipelineRunner, gst};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 mod bins;
@@ -265,7 +265,13 @@ fn install_frame_probe(
                 }
             }
             Err(err) => {
-                warn!(error = %format!("{err:#}"), "inference error");
+                gst::element_error!(
+                    element,
+                    gst::CoreError::Failed,
+                    ("inference failed"),
+                    ["{err:#}"]
+                );
+                return gst::PadProbeReturn::Remove;
             }
         }
         gst::PadProbeReturn::Ok
@@ -293,6 +299,14 @@ async fn link_watchdog(pad: gst::Pad, timeout: Duration) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct FailingDetector;
+
+    impl Detector for FailingDetector {
+        fn infer(&self, _input: &[f32]) -> Result<Vec<f32>> {
+            anyhow::bail!("fake detector failure")
+        }
+    }
 
     #[test]
     fn pace_auto_resolves_per_source() {
@@ -335,5 +349,31 @@ mod tests {
             pipeline.by_name("pace").is_none(),
             "fast has no pace element"
         );
+    }
+
+    #[tokio::test]
+    async fn inference_failure_reaches_pipeline_bus() {
+        gstsmith_app::init().expect("GStreamer should initialize");
+        let (pipeline, watch) = build_pipeline(&Source::Test, Pace::Fast).expect("pipeline builds");
+        assert!(watch.is_none(), "static source needs no watchdog");
+        install_frame_probe(&pipeline, "infer", Arc::new(FailingDetector))
+            .expect("frame probe installs");
+        let observed = pipeline.clone();
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            PipelineRunner::new(pipeline).run(std::future::pending()),
+        )
+        .await
+        .expect("pipeline runner should receive inference failure before timeout");
+        let err = result.expect_err("inference failure should stop the pipeline");
+        let detail = format!("{err:#}");
+
+        assert!(detail.contains("running inference"), "error was: {detail}");
+        assert!(
+            detail.contains("fake detector failure"),
+            "error was: {detail}"
+        );
+        assert_eq!(observed.current_state(), gst::State::Null);
     }
 }
