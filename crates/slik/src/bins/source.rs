@@ -64,8 +64,13 @@ enum RtspVideoCodec {
 
 fn rtsp_video_codec(caps: &gst::Caps) -> Option<RtspVideoCodec> {
     caps.iter().find_map(|structure| {
-        if structure.name() != "application/x-rtp"
-            || structure.get::<String>("media").ok().as_deref() != Some("video")
+        // rtspsrc normally reports application/x-rtp here, but GStreamer 1.28
+        // can expose SDP-derived select-stream caps as application/x-unknown.
+        // The eventual source pad is still restricted to supported RTP caps.
+        if !matches!(
+            structure.name().as_str(),
+            "application/x-rtp" | "application/x-unknown"
+        ) || structure.get::<String>("media").ok().as_deref() != Some("video")
         {
             return None;
         }
@@ -175,13 +180,17 @@ impl PipelineBin for Source {
 mod tests {
     use super::*;
 
-    fn rtp_caps(media: &str, encoding: Option<&str>) -> gst::Caps {
+    fn stream_caps(name: &str, media: &str, encoding: Option<&str>) -> gst::Caps {
         gstsmith_app::init().expect("GStreamer should initialize");
-        let builder = gst::Caps::builder("application/x-rtp").field("media", media);
+        let builder = gst::Caps::builder(name).field("media", media);
         match encoding {
             Some(encoding) => builder.field("encoding-name", encoding).build(),
             None => builder.build(),
         }
+    }
+
+    fn rtp_caps(media: &str, encoding: Option<&str>) -> gst::Caps {
+        stream_caps("application/x-rtp", media, encoding)
     }
 
     #[test]
@@ -197,10 +206,26 @@ mod tests {
     }
 
     #[test]
+    fn recognizes_gstreamer_unknown_rtsp_stream_caps() {
+        assert_eq!(
+            rtsp_video_codec(&stream_caps("application/x-unknown", "video", Some("H264"))),
+            Some(RtspVideoCodec::H264)
+        );
+        assert_eq!(
+            rtsp_video_codec(&stream_caps("application/x-unknown", "video", Some("H265"))),
+            Some(RtspVideoCodec::H265)
+        );
+    }
+
+    #[test]
     fn rejects_unsupported_rtp_caps() {
         assert_eq!(rtsp_video_codec(&rtp_caps("video", Some("VP9"))), None);
         assert_eq!(rtsp_video_codec(&rtp_caps("audio", Some("H264"))), None);
         assert_eq!(rtsp_video_codec(&rtp_caps("video", None)), None);
+        assert_eq!(
+            rtsp_video_codec(&stream_caps("video/x-raw", "video", Some("H264"))),
+            None
+        );
     }
 
     #[test]
