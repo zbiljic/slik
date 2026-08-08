@@ -84,13 +84,17 @@ fn frame_to_input(pad: &gst::Pad, info: &gst::PadProbeInfo) -> Result<Option<Vec
     let stride = stride_i32 as usize;
     let data = frame.plane_data(0).context("reading plane 0 data")?;
 
-    // NCHW f32 input with NanoDet BGR mean/std. Pipeline delivers RGB; NanoDet
-    // channel order is BGR, so tensor channel 0=B,1=G,2=R.
+    Ok(Some(bgr_frame_to_nchw(data, stride)?))
+}
+
+fn bgr_frame_to_nchw(data: &[u8], stride: usize) -> Result<Vec<f32>> {
+    // NCHW f32 input with NanoDet BGR mean/std. Pipeline delivers packed BGR,
+    // so tensor channel 0=B,1=G,2=R.
     // mean(BGR) = [103.53, 116.28, 123.675], std(BGR) = [57.375, 57.12, 58.395].
     let mean = [103.53_f32, 116.28, 123.675];
     let std = [57.375_f32, 57.12, 58.395];
     let mut input = vec![0.0_f32; 3 * INPUT * INPUT];
-    let (plane_r, plane_g, plane_b) = (0usize, INPUT * INPUT, 2 * INPUT * INPUT);
+    let (channel_b, channel_g, channel_r) = (0usize, INPUT * INPUT, 2 * INPUT * INPUT);
     #[expect(
         clippy::indexing_slicing,
         reason = "fixed-size tensor buffer, indices bounded by INPUT"
@@ -103,15 +107,15 @@ fn frame_to_input(pad: &gst::Pad, info: &gst::PadProbeInfo) -> Result<Option<Vec
             let px = row
                 .get(x * 3..x * 3 + 3)
                 .ok_or_else(|| anyhow!("pixel oob"))?;
-            let (r, g, b) = (f32::from(px[0]), f32::from(px[1]), f32::from(px[2]));
+            let (b, g, r) = (f32::from(px[0]), f32::from(px[1]), f32::from(px[2]));
             let idx = y * INPUT + x;
-            input[plane_b + idx] = (b - mean[0]) / std[0];
-            input[plane_g + idx] = (g - mean[1]) / std[1];
-            input[plane_r + idx] = (r - mean[2]) / std[2];
+            input[channel_b + idx] = (b - mean[0]) / std[0];
+            input[channel_g + idx] = (g - mean[1]) / std[1];
+            input[channel_r + idx] = (r - mean[2]) / std[2];
         }
     }
 
-    Ok(Some(input))
+    Ok(input)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -253,6 +257,43 @@ fn coco_label(i: usize) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bgr_frame_is_normalized_as_bgr() {
+        let stride = INPUT * 3 + 7;
+        let mut data = vec![0_u8; stride * INPUT];
+        let first_bgr = [17_u8, 83, 241];
+        data[..3].copy_from_slice(&first_bgr);
+
+        let (x, y) = (19, 23);
+        let later_bgr = [211_u8, 47, 109];
+        let later_start = y * stride + x * 3;
+        data[later_start..later_start + 3].copy_from_slice(&later_bgr);
+
+        let input = match bgr_frame_to_nchw(&data, stride) {
+            Ok(input) => input,
+            Err(error) => panic!("converting valid BGR frame failed: {error:#}"),
+        };
+        let plane = INPUT * INPUT;
+        let tolerance = 1e-6;
+
+        assert!((input[0] - (f32::from(first_bgr[0]) - 103.53) / 57.375).abs() < tolerance);
+        assert!((input[plane] - (f32::from(first_bgr[1]) - 116.28) / 57.12).abs() < tolerance);
+        assert!(
+            (input[2 * plane] - (f32::from(first_bgr[2]) - 123.675) / 58.395).abs() < tolerance
+        );
+
+        let later_idx = y * INPUT + x;
+        assert!((input[later_idx] - (f32::from(later_bgr[0]) - 103.53) / 57.375).abs() < tolerance);
+        assert!(
+            (input[plane + later_idx] - (f32::from(later_bgr[1]) - 116.28) / 57.12).abs()
+                < tolerance
+        );
+        assert!(
+            (input[2 * plane + later_idx] - (f32::from(later_bgr[2]) - 123.675) / 58.395).abs()
+                < tolerance
+        );
+    }
 
     #[test]
     fn integral_of_delta_is_the_index() {

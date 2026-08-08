@@ -153,7 +153,7 @@ fn build_pipeline(source: &Source, pace: Pace) -> Result<(gst::Pipeline, Option<
     let input_dim =
         i32::try_from(nanodet::INPUT).context("NanoDet input dimension does not fit in i32")?;
     let caps = gst::Caps::builder("video/x-raw")
-        .field("format", "RGB")
+        .field("format", "BGR")
         .field("width", input_dim)
         .field("height", input_dim)
         .build();
