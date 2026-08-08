@@ -3,27 +3,56 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result, anyhow};
 use gstsmith_app::gst;
 use gstsmith_app::gst::prelude::*;
+use gstsmith_app::{BinBase, PipelineBin, connect_dynamic, ghost_src};
 
-use super::{PipelineBin, connect_dynamic, ghost_src};
-use crate::make;
+const DECODED_TAIL: &str = "convert";
 
-// Element names used to build and re-find watch pads — single-sourced.
-const DECODED_TAIL: &str = "source-convert"; // videoconvert; deferred-link target
-
-#[derive(Debug, Clone)]
-pub(crate) enum Source {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SourceKind {
     Test,
     File(PathBuf),
     Rtsp(String),
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct Source {
+    base: BinBase,
+    kind: SourceKind,
+}
+
 impl Source {
     pub(crate) fn parse(raw: Option<&str>) -> Self {
-        match raw.map(str::trim) {
-            None | Some("" | "test") => Source::Test,
-            Some(uri) if uri.starts_with("rtsp://") => Source::Rtsp(uri.to_owned()),
-            Some(path) => Source::File(PathBuf::from(path)),
+        let kind = match raw.map(str::trim) {
+            None | Some("" | "test") => SourceKind::Test,
+            Some(uri) if uri.starts_with("rtsp://") => SourceKind::Rtsp(uri.to_owned()),
+            Some(path) => SourceKind::File(PathBuf::from(path)),
+        };
+        Self {
+            base: BinBase::new("source"),
+            kind,
         }
+    }
+
+    pub(crate) fn is_file(&self) -> bool {
+        matches!(self.kind, SourceKind::File(_))
+    }
+
+    pub(crate) fn is_rtsp(&self) -> bool {
+        matches!(self.kind, SourceKind::Rtsp(_))
+    }
+
+    pub(crate) fn watch_pad(&self, bin: &gst::Bin) -> Result<Option<gst::Pad>> {
+        if self.kind == SourceKind::Test {
+            return Ok(None);
+        }
+        let name = self.base.child(DECODED_TAIL);
+        let elem = bin
+            .by_name(&name)
+            .ok_or_else(|| anyhow!("source bin missing element '{name}' to watch"))?;
+        let pad = elem
+            .static_pad("sink")
+            .ok_or_else(|| anyhow!("element '{name}' has no sink pad to watch"))?;
+        Ok(Some(pad))
     }
 }
 
@@ -71,26 +100,26 @@ fn supported_rtsp_video_caps() -> gst::Caps {
 
 impl PipelineBin for Source {
     fn build(&self) -> Result<gst::Bin> {
-        let bin = gst::Bin::with_name("source-bin");
-        match self {
-            Source::Test => {
-                let src = make("videotestsrc", "source")?;
+        let bin = self.base.bin();
+        match &self.kind {
+            SourceKind::Test => {
+                let src = self.base.make("videotestsrc", "input")?;
                 src.set_property("is-live", true);
                 bin.add(&src).context("adding videotestsrc")?;
                 ghost_src(&bin, &src)?;
                 Ok(bin)
             }
-            Source::File(path) => {
-                let src = make("filesrc", "source")?;
+            SourceKind::File(path) => {
+                let src = self.base.make("filesrc", "input")?;
                 let location = path
                     .to_str()
                     .ok_or_else(|| anyhow!("file path is not valid UTF-8: {}", path.display()))?;
                 src.set_property("location", location);
-                let dec = make("decodebin", "decode")?;
+                let dec = self.base.make("decodebin", "decode")?;
                 // The videoconvert tail provides a stable decoded-video boundary. Its
                 // raw-ANY input accepts any memory feature; the downstream bare BGR caps
                 // constrain inference frames to default/system memory.
-                let convert = make("videoconvert", DECODED_TAIL)?;
+                let convert = self.base.make("videoconvert", DECODED_TAIL)?;
                 bin.add_many([&src, &dec, &convert])
                     .context("adding filesrc ! decodebin ! videoconvert")?;
                 gst::Element::link_many([&src, &dec]).context("linking filesrc ! decodebin")?;
@@ -99,17 +128,12 @@ impl PipelineBin for Source {
                     .ok_or_else(|| anyhow!("videoconvert has no sink pad"))?;
                 // Match a decoded video pad regardless of memory feature (system vs GLMemory).
                 let want = gst::Caps::builder("video/x-raw").any_features().build();
-                connect_dynamic(
-                    &dec,
-                    convert_sink,
-                    Some(want),
-                    "decodebin -> convert".to_owned(),
-                )?;
+                connect_dynamic(&dec, convert_sink, Some(want), "decodebin -> convert")?;
                 ghost_src(&bin, &convert)?;
                 Ok(bin)
             }
-            Source::Rtsp(url) => {
-                let src = make("rtspsrc", "source")?;
+            SourceKind::Rtsp(url) => {
+                let src = self.base.make("rtspsrc", "input")?;
                 src.set_property("location", url.as_str());
                 src.set_property_from_str("protocols", "tcp");
                 src.connect("select-stream", false, |args| {
@@ -120,8 +144,8 @@ impl PipelineBin for Source {
                     Some(is_supported.to_value())
                 });
 
-                let dec = make("decodebin", "decode")?;
-                let convert = make("videoconvert", DECODED_TAIL)?;
+                let dec = self.base.make("decodebin", "decode")?;
+                let convert = self.base.make("videoconvert", DECODED_TAIL)?;
                 bin.add_many([&src, &dec, &convert])
                     .context("adding rtspsrc ! decodebin ! videoconvert")?;
 
@@ -132,37 +156,18 @@ impl PipelineBin for Source {
                     &src,
                     decode_sink,
                     Some(supported_rtsp_video_caps()),
-                    "rtspsrc -> decodebin".to_owned(),
+                    "rtspsrc -> decodebin",
                 )?;
 
                 let convert_sink = convert
                     .static_pad("sink")
                     .ok_or_else(|| anyhow!("videoconvert has no sink pad"))?;
                 let want = gst::Caps::builder("video/x-raw").any_features().build();
-                connect_dynamic(
-                    &dec,
-                    convert_sink,
-                    Some(want),
-                    "decodebin -> convert".to_owned(),
-                )?;
+                connect_dynamic(&dec, convert_sink, Some(want), "decodebin -> convert")?;
                 ghost_src(&bin, &convert)?;
                 Ok(bin)
             }
         }
-    }
-
-    fn watch_pad(&self, bin: &gst::Bin) -> Result<Option<gst::Pad>> {
-        let name = match self {
-            Source::Test => return Ok(None),
-            Source::File(_) | Source::Rtsp(_) => DECODED_TAIL,
-        };
-        let elem = bin
-            .by_name(name)
-            .ok_or_else(|| anyhow!("source bin missing element '{name}' to watch"))?;
-        let pad = elem
-            .static_pad("sink")
-            .ok_or_else(|| anyhow!("element '{name}' has no sink pad to watch"))?;
-        Ok(Some(pad))
     }
 }
 
@@ -210,32 +215,32 @@ mod tests {
 
     #[test]
     fn parses_source_uris() {
-        assert!(matches!(Source::parse(None), Source::Test));
-        assert!(matches!(Source::parse(Some("")), Source::Test));
-        assert!(matches!(Source::parse(Some("test")), Source::Test));
-        assert!(matches!(
-            Source::parse(Some("rtsp://cam/stream")),
-            Source::Rtsp(_)
-        ));
-        assert!(matches!(
-            Source::parse(Some("/tmp/clip.mp4")),
-            Source::File(_)
-        ));
+        assert_eq!(Source::parse(None).kind, SourceKind::Test);
+        assert_eq!(Source::parse(Some("")).kind, SourceKind::Test);
+        assert_eq!(Source::parse(Some("test")).kind, SourceKind::Test);
+        assert!(Source::parse(Some("rtsp://cam/stream")).is_rtsp());
+        assert!(Source::parse(Some("/tmp/clip.mp4")).is_file());
     }
 
     #[test]
     fn rtsp_bin_builds_with_ghost_src_and_watch_pad() {
         gstsmith_app::init().expect("GStreamer should initialize");
-        let source = Source::Rtsp("rtsp://example/stream".to_owned());
+        let source = Source::parse(Some("rtsp://example/stream"));
         let bin = source.build().expect("source bin builds");
         assert!(
             bin.static_pad("src").is_some(),
             "bin exposes a ghost src pad"
         );
-        assert!(bin.by_name("source").is_some(), "bin contains rtspsrc");
-        assert!(bin.by_name("decode").is_some(), "bin contains decodebin");
+        assert!(
+            bin.by_name("source-input").is_some(),
+            "bin contains rtspsrc"
+        );
+        assert!(
+            bin.by_name("source-decode").is_some(),
+            "bin contains decodebin"
+        );
         let tail = bin
-            .by_name(DECODED_TAIL)
+            .by_name("source-convert")
             .expect("bin contains decoded videoconvert tail");
         assert!(
             bin.by_name("depay").is_none(),
@@ -257,7 +262,7 @@ mod tests {
     #[test]
     fn test_source_has_no_watch_pad() {
         gstsmith_app::init().expect("GStreamer should initialize");
-        let source = Source::Test;
+        let source = Source::parse(None);
         let bin = source.build().expect("source bin builds");
         assert!(
             source.watch_pad(&bin).expect("watch_pad ok").is_none(),

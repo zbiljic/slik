@@ -5,7 +5,7 @@
 //! runtime behind a trait lets the same pipeline A/B-benchmark different ONNX
 //! runtimes via `--runtime`.
 //!
-//! Note: this is a plain runtime abstraction, not a [`crate::bins::PipelineBin`]
+//! Note: this is a plain runtime abstraction, not a [`gstsmith_app::PipelineBin`]
 //! — inference runs in a pad probe, not as a `GStreamer` element.
 
 use std::path::Path;

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context as _, Result, anyhow};
 use clap::Parser;
 use gstsmith_app::gst::prelude::*;
-use gstsmith_app::{PipelineRunner, gst};
+use gstsmith_app::{PipelineBin, PipelineRunner, gst, make};
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
@@ -15,7 +15,6 @@ mod bins;
 mod infer;
 mod nanodet;
 
-use crate::bins::PipelineBin;
 use crate::bins::source::Source;
 use crate::infer::{Detector, Runtime};
 
@@ -36,10 +35,8 @@ enum Pace {
 impl Pace {
     fn resolve(self, source: &Source) -> Pace {
         match self {
-            Pace::Auto => match source {
-                Source::File(_) => Pace::Realtime,
-                Source::Test | Source::Rtsp(_) => Pace::Fast,
-            },
+            Pace::Auto if source.is_file() => Pace::Realtime,
+            Pace::Auto => Pace::Fast,
             other => other,
         }
     }
@@ -101,9 +98,10 @@ async fn main() -> Result<()> {
     register_plugins()?;
 
     let source = Source::parse(cli.source.as_deref());
-    let watchdog_label = match source {
-        Source::Rtsp(_) => "rtsp source did not produce decodable H.264 or H.265 video over RTP",
-        Source::Test | Source::File(_) => "source did not connect",
+    let watchdog_label = if source.is_rtsp() {
+        "rtsp source did not produce decodable H.264 or H.265 video over RTP"
+    } else {
+        "source did not connect"
     };
     let pace = cli.pace.resolve(&source);
     info!(?pace, "frame pacing");
@@ -139,13 +137,6 @@ fn register_plugins() -> Result<()> {
         .map(|_| ())
         .context("registering the gstsmith lines plugin")?;
     Ok(())
-}
-
-pub(crate) fn make(factory: &str, name: &str) -> Result<gst::Element> {
-    gst::ElementFactory::make(factory)
-        .name(name)
-        .build()
-        .with_context(|| format!("creating element '{factory}' (named '{name}')"))
 }
 
 fn build_pipeline(source: &Source, pace: Pace) -> Result<(gst::Pipeline, Option<gst::Pad>)> {
@@ -331,17 +322,17 @@ mod tests {
 
     #[test]
     fn pace_auto_resolves_per_source() {
-        assert_eq!(Pace::Auto.resolve(&Source::Test), Pace::Fast);
+        assert_eq!(Pace::Auto.resolve(&Source::parse(None)), Pace::Fast);
         assert_eq!(
-            Pace::Auto.resolve(&Source::File("/x.mp4".into())),
+            Pace::Auto.resolve(&Source::parse(Some("/x.mp4"))),
             Pace::Realtime
         );
         assert_eq!(
-            Pace::Auto.resolve(&Source::Rtsp("rtsp://x".into())),
+            Pace::Auto.resolve(&Source::parse(Some("rtsp://x"))),
             Pace::Fast
         );
         assert_eq!(
-            Pace::Full.resolve(&Source::File("/x.mp4".into())),
+            Pace::Full.resolve(&Source::parse(Some("/x.mp4"))),
             Pace::Full
         );
     }
@@ -349,8 +340,9 @@ mod tests {
     #[test]
     fn builds_test_source_pipeline() {
         gstsmith_app::init().expect("GStreamer should initialize");
-        let (pipeline, watch) = build_pipeline(&Source::Test, Pace::Fast).expect("pipeline builds");
-        assert!(pipeline.by_name("source-bin").is_some());
+        let (pipeline, watch) =
+            build_pipeline(&Source::parse(None), Pace::Fast).expect("pipeline builds");
+        assert!(pipeline.by_name("source").is_some());
         assert!(pipeline.by_name("infer").is_some());
         assert!(watch.is_none(), "static source needs no watchdog");
     }
@@ -358,14 +350,14 @@ mod tests {
     #[test]
     fn realtime_inserts_pace_element() {
         gstsmith_app::init().expect("GStreamer should initialize");
-        let (pipeline, _) = build_pipeline(&Source::File("/x.mp4".into()), Pace::Realtime)
+        let (pipeline, _) = build_pipeline(&Source::parse(Some("/x.mp4")), Pace::Realtime)
             .expect("pipeline builds");
         assert!(
             pipeline.by_name("pace").is_some(),
             "realtime inserts a pace identity"
         );
         let (pipeline, _) =
-            build_pipeline(&Source::File("/x.mp4".into()), Pace::Fast).expect("pipeline builds");
+            build_pipeline(&Source::parse(Some("/x.mp4")), Pace::Fast).expect("pipeline builds");
         assert!(
             pipeline.by_name("pace").is_none(),
             "fast has no pace element"
@@ -375,7 +367,8 @@ mod tests {
     #[tokio::test]
     async fn inference_failure_reaches_pipeline_bus() {
         gstsmith_app::init().expect("GStreamer should initialize");
-        let (pipeline, watch) = build_pipeline(&Source::Test, Pace::Fast).expect("pipeline builds");
+        let (pipeline, watch) =
+            build_pipeline(&Source::parse(None), Pace::Fast).expect("pipeline builds");
         assert!(watch.is_none(), "static source needs no watchdog");
         install_frame_probe(&pipeline, "infer", Arc::new(FailingDetector))
             .expect("frame probe installs");
