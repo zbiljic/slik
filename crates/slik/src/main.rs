@@ -56,7 +56,7 @@ struct Cli {
     )]
     model: PathBuf,
 
-    /// Video source: empty/"test" = test pattern, a file path, or an rtsp:// URL carrying H.264 video over RTP.
+    /// Video source: empty/"test" = test pattern, a file path, or an rtsp:// URL carrying H.264 or H.265 video over RTP.
     #[arg(long, value_name = "URI")]
     source: Option<String>,
 
@@ -102,7 +102,7 @@ async fn main() -> Result<()> {
 
     let source = Source::parse(cli.source.as_deref());
     let watchdog_label = match source {
-        Source::Rtsp(_) => "rtsp source did not provide a supported H.264 video RTP stream",
+        Source::Rtsp(_) => "rtsp source did not produce decodable H.264 or H.265 video over RTP",
         Source::Test | Source::File(_) => "source did not connect",
     };
     let pace = cli.pace.resolve(&source);

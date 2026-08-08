@@ -8,8 +8,7 @@ use super::{PipelineBin, connect_dynamic, ghost_src};
 use crate::make;
 
 // Element names used to build and re-find watch pads — single-sourced.
-const FILE_TAIL: &str = "source-convert"; // videoconvert; deferred-link target for File
-const RTSP_DEPAY: &str = "depay"; // rtph264depay; deferred-link target for Rtsp
+const DECODED_TAIL: &str = "source-convert"; // videoconvert; deferred-link target
 
 #[derive(Debug, Clone)]
 pub(crate) enum Source {
@@ -28,16 +27,46 @@ impl Source {
     }
 }
 
-fn is_h264_video_rtp(caps: &gst::Caps) -> bool {
-    caps.iter().any(|structure| {
-        structure.name() == "application/x-rtp"
-            && structure
-                .get::<String>("media")
-                .is_ok_and(|media| media == "video")
-            && structure
-                .get::<String>("encoding-name")
-                .is_ok_and(|encoding| encoding.eq_ignore_ascii_case("H264"))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RtspVideoCodec {
+    H264,
+    H265,
+}
+
+fn rtsp_video_codec(caps: &gst::Caps) -> Option<RtspVideoCodec> {
+    caps.iter().find_map(|structure| {
+        if structure.name() != "application/x-rtp"
+            || structure.get::<String>("media").ok().as_deref() != Some("video")
+        {
+            return None;
+        }
+
+        let encoding = structure.get::<String>("encoding-name").ok()?;
+        if encoding.eq_ignore_ascii_case("H264") {
+            Some(RtspVideoCodec::H264)
+        } else if encoding.eq_ignore_ascii_case("H265") {
+            Some(RtspVideoCodec::H265)
+        } else {
+            None
+        }
     })
+}
+
+fn supported_rtsp_video_caps() -> gst::Caps {
+    gst::Caps::builder_full()
+        .structure(
+            gst::Structure::builder("application/x-rtp")
+                .field("media", "video")
+                .field("encoding-name", "H264")
+                .build(),
+        )
+        .structure(
+            gst::Structure::builder("application/x-rtp")
+                .field("media", "video")
+                .field("encoding-name", "H265")
+                .build(),
+        )
+        .build()
 }
 
 impl PipelineBin for Source {
@@ -58,11 +87,10 @@ impl PipelineBin for Source {
                     .ok_or_else(|| anyhow!("file path is not valid UTF-8: {}", path.display()))?;
                 src.set_property("location", location);
                 let dec = make("decodebin", "decode")?;
-                // videoconvert tail: it accepts only system-memory video/x-raw, which
-                // forces a hardware decoder (e.g. macOS vtdechw, which otherwise emits
-                // video/x-raw(memory:GLMemory)) to negotiate CPU-accessible buffers the
-                // downstream videocrop/videoscale chain can consume.
-                let convert = make("videoconvert", FILE_TAIL)?;
+                // The videoconvert tail provides a stable decoded-video boundary. Its
+                // raw-ANY input accepts any memory feature; the downstream bare BGR caps
+                // constrain inference frames to default/system memory.
+                let convert = make("videoconvert", DECODED_TAIL)?;
                 bin.add_many([&src, &dec, &convert])
                     .context("adding filesrc ! decodebin ! videoconvert")?;
                 gst::Element::link_many([&src, &dec]).context("linking filesrc ! decodebin")?;
@@ -88,27 +116,36 @@ impl PipelineBin for Source {
                     let is_supported = args
                         .get(2)
                         .and_then(|v| v.get::<gst::Caps>().ok())
-                        .is_some_and(|caps| is_h264_video_rtp(&caps));
+                        .is_some_and(|caps| rtsp_video_codec(&caps).is_some());
                     Some(is_supported.to_value())
                 });
 
-                let depay = make("rtph264depay", RTSP_DEPAY)?;
-                let parse = make("h264parse", "parse")?;
-                let dec = make("avdec_h264", "decode")?;
-                bin.add_many([&src, &depay, &parse, &dec])
-                    .context("adding rtsp source chain")?;
-                gst::Element::link_many([&depay, &parse, &dec])
-                    .context("linking rtph264depay ! h264parse ! avdec_h264")?;
+                let dec = make("decodebin", "decode")?;
+                let convert = make("videoconvert", DECODED_TAIL)?;
+                bin.add_many([&src, &dec, &convert])
+                    .context("adding rtspsrc ! decodebin ! videoconvert")?;
 
-                let depay_sink = depay
+                let decode_sink = dec
                     .static_pad("sink")
-                    .ok_or_else(|| anyhow!("rtph264depay has no sink pad"))?;
-                let want = gst::Caps::builder("application/x-rtp")
-                    .field("media", "video")
-                    .field("encoding-name", "H264")
-                    .build();
-                connect_dynamic(&src, depay_sink, Some(want), "rtspsrc -> depay".to_owned())?;
-                ghost_src(&bin, &dec)?;
+                    .ok_or_else(|| anyhow!("decodebin has no sink pad"))?;
+                connect_dynamic(
+                    &src,
+                    decode_sink,
+                    Some(supported_rtsp_video_caps()),
+                    "rtspsrc -> decodebin".to_owned(),
+                )?;
+
+                let convert_sink = convert
+                    .static_pad("sink")
+                    .ok_or_else(|| anyhow!("videoconvert has no sink pad"))?;
+                let want = gst::Caps::builder("video/x-raw").any_features().build();
+                connect_dynamic(
+                    &dec,
+                    convert_sink,
+                    Some(want),
+                    "decodebin -> convert".to_owned(),
+                )?;
+                ghost_src(&bin, &convert)?;
                 Ok(bin)
             }
         }
@@ -117,8 +154,7 @@ impl PipelineBin for Source {
     fn watch_pad(&self, bin: &gst::Bin) -> Result<Option<gst::Pad>> {
         let name = match self {
             Source::Test => return Ok(None),
-            Source::File(_) => FILE_TAIL,
-            Source::Rtsp(_) => RTSP_DEPAY,
+            Source::File(_) | Source::Rtsp(_) => DECODED_TAIL,
         };
         let elem = bin
             .by_name(name)
@@ -144,23 +180,32 @@ mod tests {
     }
 
     #[test]
-    fn accepts_h264_video_rtp_caps() {
-        assert!(is_h264_video_rtp(&rtp_caps("video", Some("h264"))));
+    fn recognizes_supported_video_rtp_codecs() {
+        assert_eq!(
+            rtsp_video_codec(&rtp_caps("video", Some("h264"))),
+            Some(RtspVideoCodec::H264)
+        );
+        assert_eq!(
+            rtsp_video_codec(&rtp_caps("video", Some("H265"))),
+            Some(RtspVideoCodec::H265)
+        );
     }
 
     #[test]
-    fn rejects_h265_video_rtp_caps() {
-        assert!(!is_h264_video_rtp(&rtp_caps("video", Some("H265"))));
+    fn rejects_unsupported_rtp_caps() {
+        assert_eq!(rtsp_video_codec(&rtp_caps("video", Some("VP9"))), None);
+        assert_eq!(rtsp_video_codec(&rtp_caps("audio", Some("H264"))), None);
+        assert_eq!(rtsp_video_codec(&rtp_caps("video", None)), None);
     }
 
     #[test]
-    fn rejects_audio_rtp_caps() {
-        assert!(!is_h264_video_rtp(&rtp_caps("audio", Some("H264"))));
-    }
-
-    #[test]
-    fn rejects_rtp_caps_without_encoding_name() {
-        assert!(!is_h264_video_rtp(&rtp_caps("video", None)));
+    fn supported_caps_intersect_only_supported_video_rtp() {
+        gstsmith_app::init().expect("GStreamer should initialize");
+        let supported = supported_rtsp_video_caps();
+        assert!(supported.can_intersect(&rtp_caps("video", Some("H264"))));
+        assert!(supported.can_intersect(&rtp_caps("video", Some("H265"))));
+        assert!(!supported.can_intersect(&rtp_caps("video", Some("VP9"))));
+        assert!(!supported.can_intersect(&rtp_caps("audio", Some("H264"))));
     }
 
     #[test]
@@ -187,10 +232,25 @@ mod tests {
             bin.static_pad("src").is_some(),
             "bin exposes a ghost src pad"
         );
+        assert!(bin.by_name("source").is_some(), "bin contains rtspsrc");
+        assert!(bin.by_name("decode").is_some(), "bin contains decodebin");
+        let tail = bin
+            .by_name(DECODED_TAIL)
+            .expect("bin contains decoded videoconvert tail");
+        assert!(
+            bin.by_name("depay").is_none(),
+            "bin has no fixed depayloader"
+        );
+        assert!(bin.by_name("parse").is_none(), "bin has no fixed parser");
         let watch = source
             .watch_pad(&bin)
             .expect("watch_pad ok")
             .expect("rtsp has a watch pad");
+        assert_eq!(
+            watch,
+            tail.static_pad("sink").expect("tail has a sink pad"),
+            "watch pad is the decoded tail sink"
+        );
         assert!(!watch.is_linked(), "watch pad starts unlinked");
     }
 
