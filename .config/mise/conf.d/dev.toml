@@ -26,6 +26,10 @@ run = "cargo sort --workspace --grouped --order package,dependencies,features --
 description = "Run all lint checks"
 depends = ["rust:lint:clippy"]
 
+[tasks."lint:all-features"]
+description = "Run all lint checks with all features"
+depends = ["rust:lint:clippy:all-features"]
+
 [tasks."deps:check"]
 description = "Check dependency policy"
 depends = ["rust:deps:check"]
@@ -34,10 +38,18 @@ depends = ["rust:deps:check"]
 description = "Check project source code"
 depends = ["rust:check:workspace"]
 
+[tasks."check:all-features"]
+description = "Check project source code with all features"
+depends = ["rust:check:all-features"]
+
 [tasks.test]
 description = "Run tests"
 alias = "t"
 depends = ["rust:test"]
+
+[tasks."test:all-features"]
+description = "Run tests with all features"
+depends = ["rust:test:all-features"]
 
 [tasks."pre-commit"]
 description = "Run the full local development gate"

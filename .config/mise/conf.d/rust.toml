@@ -10,9 +10,17 @@ run = "cargo fmt --all -- --check"
 description = "Check workspace crates and binaries"
 run = "cargo check --locked --workspace --all-targets"
 
+[tasks."rust:check:all-features"]
+description = "Check workspace crates and binaries with all features"
+run = "cargo check --locked --workspace --all-targets --all-features"
+
 [tasks."rust:lint:clippy"]
 description = "Lint Rust code"
 run = "cargo clippy --locked --workspace --all-targets -- -D warnings -D clippy::redundant_clone"
+
+[tasks."rust:lint:clippy:all-features"]
+description = "Lint Rust code with all features"
+run = "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::redundant_clone"
 
 [tasks."rust:deps:check"]
 description = "Check Rust dependency advisories and license policy"
@@ -21,6 +29,10 @@ run = "cargo deny check advisories licenses"
 [tasks."rust:test"]
 description = "Run workspace tests"
 run = "cargo test --locked --workspace --all-targets"
+
+[tasks."rust:test:all-features"]
+description = "Run workspace tests with all features"
+run = "cargo test --locked --workspace --all-targets --all-features"
 
 [tasks."rust:build"]
 description = "Build workspace crates and binaries"
