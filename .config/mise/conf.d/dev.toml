@@ -1,25 +1,17 @@
 [tasks.fmt]
-description = "Format project source and Cargo manifests"
-depends = ["rust:fmt", "fmt:toml"]
+description = "Format project source code"
+depends = ["*:*fmt"]
 
 [tasks."fmt:check"]
-description = "Check source and Cargo manifest formatting"
-depends = ["rust:fmt:check", "fmt:toml:check"]
-
-[tasks."fmt:toml"]
-description = "Format Cargo manifests"
-run = "cargo fmt-toml"
-
-[tasks."fmt:toml:check"]
-description = "Check Cargo manifest formatting"
-run = "cargo fmt-toml --check"
+description = "Check source formatting"
+depends = ["*:fmt:check"]
 
 [tasks."sort:crates"]
-description = "Sort workspace dependencies"
-run = "cargo sort --workspace --grouped --order package,dependencies,features"
+description = "Sort Cargo manifest dependencies"
+run = "cargo sort --workspace --grouped --no-format --order package,dependencies,features"
 
 [tasks."sort:crates:check"]
-description = "Check workspace dependency ordering"
+description = "Check Cargo manifest dependency ordering"
 run = "cargo sort --workspace --grouped --order package,dependencies,features --check"
 
 [tasks.lint]
@@ -55,10 +47,10 @@ depends = ["rust:test:all-features"]
 description = "Run the full local development gate"
 alias = "prk"
 depends = [
-    "sort:crates:check",
-    "fmt:check",
-    "lint",
-    "deps:check",
-    "check",
-    "test",
+  "sort:crates:check",
+  "fmt:check",
+  "lint",
+  "deps:check",
+  "check",
+  "test",
 ]
