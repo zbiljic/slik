@@ -1,0 +1,150 @@
+[tasks.setup]
+description = "Prepare everything required to build and run slik"
+depends = ["check:gstreamer:plugins", "setup:model"]
+
+[tasks."check:gstreamer"]
+description = "Check the GStreamer development libraries and runtime plugins"
+run = '''
+set -eu
+
+install_hint() {
+  case "$(uname -s)" in
+    Darwin)
+      echo "Install it with 'brew install gstreamer', or install the official GStreamer runtime and development packages." >&2
+      ;;
+    Linux)
+      echo "On Debian/Ubuntu, install: pkg-config libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav" >&2
+      ;;
+    *)
+      echo "Install GStreamer 1.24 or newer, its development files, gst-inspect-1.0, and the base/good plugins." >&2
+      ;;
+  esac
+}
+
+if ! command -v pkg-config >/dev/null 2>&1; then
+  echo "pkg-config was not found." >&2
+  install_hint
+  exit 1
+fi
+
+if ! pkg-config --exists gstreamer-1.0 gstreamer-video-1.0; then
+  echo "The GStreamer core and video development libraries were not found." >&2
+  install_hint
+  exit 1
+fi
+
+if ! pkg-config --atleast-version=1.24 gstreamer-1.0; then
+  version="$(pkg-config --modversion gstreamer-1.0)"
+  echo "GStreamer 1.24 or newer is required; found $version." >&2
+  install_hint
+  exit 1
+fi
+
+if ! command -v gst-inspect-1.0 >/dev/null 2>&1; then
+  echo "gst-inspect-1.0 was not found." >&2
+  install_hint
+  exit 1
+fi
+
+version="$(pkg-config --modversion gstreamer-1.0)"
+echo "GStreamer $version development libraries and tools are available."
+'''
+
+[tasks."check:gstreamer:plugins"]
+description = "Check the GStreamer runtime plugins used by slik"
+depends = ["check:gstreamer"]
+run = '''
+set -eu
+
+required_elements="
+capsfilter
+decodebin
+fakesink
+filesrc
+identity
+queue
+rtspsrc
+videocrop
+videoscale
+videotestsrc
+videoconvert
+"
+
+missing=""
+for element in $required_elements; do
+  if ! gst-inspect-1.0 --exists "$element"; then
+    missing="$missing $element"
+  fi
+done
+
+if [ -n "$missing" ]; then
+  echo "Missing GStreamer elements required by slik:$missing" >&2
+  echo "Install the GStreamer base and good plugin collections, then rerun this task." >&2
+  exit 1
+fi
+
+echo "All required GStreamer runtime elements are available."
+'''
+
+[tasks."setup:model"]
+description = "Download and verify all required models"
+depends = ["setup:model:nanodet-plus-m-320"]
+
+[tasks."setup:model:nanodet-plus-m-320"]
+description = "Download and verify the NanoDet-Plus-m 320x320 model"
+run = '''
+set -eu
+
+model="crates/slik/models/nanodet-plus-m-320.onnx"
+url="https://github.com/RangiLyu/nanodet/releases/download/v1.0.0-alpha-1/nanodet-plus-m_320.onnx"
+expected="4f12723cce3d48e47ca92cb925ba74d97a965c069208edca660bbb9f7ce2c610"
+
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    echo "Cannot verify the model: install sha256sum or shasum." >&2
+    return 1
+  fi
+}
+
+if [ -f "$model" ]; then
+  actual="$(sha256 "$model")"
+  if [ "$actual" != "$expected" ]; then
+    echo "Model checksum mismatch: $model" >&2
+    echo "Expected: $expected" >&2
+    echo "Actual:   $actual" >&2
+    echo "Remove the file and rerun 'mise run setup:model:nanodet-plus-m-320' to download a clean copy." >&2
+    exit 1
+  fi
+  echo "Model is already present and verified: $model"
+  exit 0
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "curl is required to download the NanoDet model." >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "$model")"
+partial="$model.part.$$"
+trap 'rm -f "$partial"' EXIT HUP INT TERM
+
+echo "Downloading NanoDet-Plus-m 320x320 model..."
+curl --fail --location --retry 3 --retry-delay 2 --retry-all-errors \
+  --output "$partial" "$url"
+
+actual="$(sha256 "$partial")"
+if [ "$actual" != "$expected" ]; then
+  echo "Downloaded model checksum mismatch." >&2
+  echo "Expected: $expected" >&2
+  echo "Actual:   $actual" >&2
+  exit 1
+fi
+
+mv "$partial" "$model"
+trap - EXIT HUP INT TERM
+echo "Model installed and verified: $model"
+'''
