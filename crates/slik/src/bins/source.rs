@@ -103,13 +103,15 @@ fn supported_rtsp_video_caps() -> gst::Caps {
         .build()
 }
 
-impl PipelineBin for Source {
-    fn build(&self) -> Result<gst::Bin> {
+impl Source {
+    /// Build the source, controlling whether the synthetic test source follows
+    /// the clock. The setting is ignored for file and RTSP sources.
+    pub(crate) fn build_with_test_live(&self, test_live: bool) -> Result<gst::Bin> {
         let bin = self.base.bin();
         match &self.kind {
             SourceKind::Test => {
                 let src = self.base.make("videotestsrc", "input")?;
-                src.set_property("is-live", true);
+                src.set_property("is-live", test_live);
                 bin.add(&src).context("adding videotestsrc")?;
                 ghost_src(&bin, &src)?;
                 Ok(bin)
@@ -173,6 +175,12 @@ impl PipelineBin for Source {
                 Ok(bin)
             }
         }
+    }
+}
+
+impl PipelineBin for Source {
+    fn build(&self) -> Result<gst::Bin> {
+        self.build_with_test_live(true)
     }
 }
 

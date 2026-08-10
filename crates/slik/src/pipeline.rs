@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 use gstsmith_app::gst::prelude::*;
-use gstsmith_app::{PipelineBin, gst, make};
+use gstsmith_app::{gst, make};
 
 use crate::bins::source::Source;
 
@@ -116,7 +116,9 @@ pub(crate) fn build(
 
     let pipeline = gst::Pipeline::with_name("slik");
 
-    let source_bin = source.build()?;
+    // A full-paced synthetic source is a throughput benchmark: do not make it
+    // wait on the clock. Other pace modes retain the live 30 FPS behavior.
+    let source_bin = source.build_with_test_live(pace != Pace::Full)?;
     let watch = source.watch_pad(&source_bin)?;
     pipeline.add(&source_bin).context("adding source bin")?;
     pipeline
@@ -225,6 +227,18 @@ mod tests {
         let decoder = pipeline.by_name("decode").expect("decoder element exists");
         assert_eq!(decoder.type_().name(), "GstSmithNanoDetTensorDec");
         assert!(watch.is_none(), "static source needs no watchdog");
+    }
+
+    #[test]
+    fn full_pace_uncaps_test_source() {
+        init_plugins();
+        for (pace, expected_live) in [(Pace::Fast, true), (Pace::Full, false)] {
+            let (pipeline, _) = build_test_pipeline(pace, Runtime::Tract).expect("pipeline builds");
+            let source = pipeline
+                .by_name("source-input")
+                .expect("test source element exists");
+            assert_eq!(source.property::<bool>("is-live"), expected_live);
+        }
     }
 
     #[test]
