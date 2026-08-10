@@ -91,13 +91,17 @@ description = "Download and verify all required models"
 depends = ["setup:model:nanodet-plus-m-320"]
 
 [tasks."setup:model:nanodet-plus-m-320"]
-description = "Download and verify the NanoDet-Plus-m 320x320 model"
+description = "Download and verify the NanoDet-Plus-m 320x320 model and model info"
 run = '''
 set -eu
 
 model="crates/slik/models/nanodet-plus-m-320.onnx"
-url="https://github.com/RangiLyu/nanodet/releases/download/v1.0.0-alpha-1/nanodet-plus-m_320.onnx"
-expected="4f12723cce3d48e47ca92cb925ba74d97a965c069208edca660bbb9f7ce2c610"
+model_url="https://github.com/RangiLyu/nanodet/releases/download/v1.0.0-alpha-1/nanodet-plus-m_320.onnx"
+model_expected="4f12723cce3d48e47ca92cb925ba74d97a965c069208edca660bbb9f7ce2c610"
+model_info="${model}.modelinfo"
+gstsmith_revision="c989860b8da726d84d7f3690f9cd41f8b2cc6529"
+model_info_url="https://raw.githubusercontent.com/zbiljic/gstsmith-rs/${gstsmith_revision}/analytics/nanodet/tests/fixtures/nanodet-plus-m-320.onnx.modelinfo"
+model_info_expected="fba887f2e0106ceb16c053193086db274820199ff4edda33def73412ac48a359"
 
 sha256() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -105,46 +109,56 @@ sha256() {
   elif command -v shasum >/dev/null 2>&1; then
     shasum -a 256 "$1" | awk '{print $1}'
   else
-    echo "Cannot verify the model: install sha256sum or shasum." >&2
+    echo "Cannot verify model assets: install sha256sum or shasum." >&2
     return 1
   fi
 }
 
-if [ -f "$model" ]; then
-  actual="$(sha256 "$model")"
-  if [ "$actual" != "$expected" ]; then
-    echo "Model checksum mismatch: $model" >&2
-    echo "Expected: $expected" >&2
-    echo "Actual:   $actual" >&2
-    echo "Remove the file and rerun 'mise run setup:model:nanodet-plus-m-320' to download a clean copy." >&2
-    exit 1
+install_asset() {
+  asset_path="$1"
+  asset_url="$2"
+  asset_expected="$3"
+  asset_label="$4"
+
+  if [ -f "$asset_path" ]; then
+    asset_actual="$(sha256 "$asset_path")"
+    if [ "$asset_actual" != "$asset_expected" ]; then
+      echo "$asset_label checksum mismatch: $asset_path" >&2
+      echo "Expected: $asset_expected" >&2
+      echo "Actual:   $asset_actual" >&2
+      echo "Remove the file and rerun 'mise run setup:model:nanodet-plus-m-320' to download a clean copy." >&2
+      return 1
+    fi
+    echo "$asset_label is already present and verified: $asset_path"
+    return
   fi
-  echo "Model is already present and verified: $model"
-  exit 0
-fi
 
-if ! command -v curl >/dev/null 2>&1; then
-  echo "curl is required to download the NanoDet model." >&2
-  exit 1
-fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "curl is required to download $asset_label." >&2
+    return 1
+  fi
 
-mkdir -p "$(dirname "$model")"
-partial="$model.part.$$"
-trap 'rm -f "$partial"' EXIT HUP INT TERM
+  mkdir -p "$(dirname "$asset_path")"
+  asset_partial="$asset_path.part.$$"
+  trap 'rm -f "$asset_partial"' EXIT HUP INT TERM
 
-echo "Downloading NanoDet-Plus-m 320x320 model..."
-curl --fail --location --retry 3 --retry-delay 2 --retry-all-errors \
-  --output "$partial" "$url"
+  echo "Downloading $asset_label..."
+  curl --fail --location --retry 3 --retry-delay 2 --retry-all-errors \
+    --output "$asset_partial" "$asset_url"
 
-actual="$(sha256 "$partial")"
-if [ "$actual" != "$expected" ]; then
-  echo "Downloaded model checksum mismatch." >&2
-  echo "Expected: $expected" >&2
-  echo "Actual:   $actual" >&2
-  exit 1
-fi
+  asset_actual="$(sha256 "$asset_partial")"
+  if [ "$asset_actual" != "$asset_expected" ]; then
+    echo "Downloaded $asset_label checksum mismatch." >&2
+    echo "Expected: $asset_expected" >&2
+    echo "Actual:   $asset_actual" >&2
+    return 1
+  fi
 
-mv "$partial" "$model"
-trap - EXIT HUP INT TERM
-echo "Model installed and verified: $model"
+  mv "$asset_partial" "$asset_path"
+  trap - EXIT HUP INT TERM
+  echo "$asset_label installed and verified: $asset_path"
+}
+
+install_asset "$model" "$model_url" "$model_expected" "NanoDet-Plus-m 320x320 model"
+install_asset "$model_info" "$model_info_url" "$model_info_expected" "NanoDet model info"
 '''
