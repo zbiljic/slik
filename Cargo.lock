@@ -155,6 +155,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
+name = "byte-slice-cast"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7575182f7272186991736b70173b0ea045398f984bf5ebbb3804736ce1330c9d"
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -668,9 +674,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gst-inference-common"
+version = "0.1.0"
+source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#c989860b8da726d84d7f3690f9cd41f8b2cc6529"
+dependencies = [
+ "gstreamer",
+ "gstreamer-analytics",
+]
+
+[[package]]
 name = "gst-plugin-console"
 version = "0.1.0"
-source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#9c8ff78d1c95a3cc2d1f150ae55e9a981f519a30"
+source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#c989860b8da726d84d7f3690f9cd41f8b2cc6529"
 dependencies = [
  "gst-plugin-version-helper",
  "gstreamer",
@@ -680,12 +695,56 @@ dependencies = [
 [[package]]
 name = "gst-plugin-lines"
 version = "0.1.0"
-source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#9c8ff78d1c95a3cc2d1f150ae55e9a981f519a30"
+source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#c989860b8da726d84d7f3690f9cd41f8b2cc6529"
 dependencies = [
  "gst-plugin-version-helper",
  "gstreamer",
  "gstreamer-base",
  "memchr",
+]
+
+[[package]]
+name = "gst-plugin-nanodet"
+version = "0.1.0"
+source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#c989860b8da726d84d7f3690f9cd41f8b2cc6529"
+dependencies = [
+ "byte-slice-cast",
+ "gst-plugin-version-helper",
+ "gstreamer",
+ "gstreamer-analytics",
+ "gstreamer-base",
+ "gstreamer-video",
+ "half",
+]
+
+[[package]]
+name = "gst-plugin-ort-inference"
+version = "0.1.0"
+source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#c989860b8da726d84d7f3690f9cd41f8b2cc6529"
+dependencies = [
+ "gst-inference-common",
+ "gst-plugin-version-helper",
+ "gstreamer",
+ "gstreamer-analytics",
+ "gstreamer-base",
+ "gstreamer-video",
+ "half",
+ "ort",
+]
+
+[[package]]
+name = "gst-plugin-tract-inference"
+version = "0.1.0"
+source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#c989860b8da726d84d7f3690f9cd41f8b2cc6529"
+dependencies = [
+ "gst-inference-common",
+ "gst-plugin-version-helper",
+ "gstreamer",
+ "gstreamer-analytics",
+ "gstreamer-base",
+ "gstreamer-video",
+ "tract-metal",
+ "tract-onnx",
 ]
 
 [[package]]
@@ -721,6 +780,30 @@ dependencies = [
  "pin-project-lite",
  "smallvec",
  "thiserror",
+]
+
+[[package]]
+name = "gstreamer-analytics"
+version = "0.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1394cc55935922dcd79a2767d7ac986aef651939cde10f34624b3c705bbd4bfc"
+dependencies = [
+ "glib",
+ "gstreamer",
+ "gstreamer-analytics-sys",
+ "libc",
+]
+
+[[package]]
+name = "gstreamer-analytics-sys"
+version = "0.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a13cfa85043968bb1d624399b136b3f0b9e8e7bd4e71a7f8f45ace08df25aff"
+dependencies = [
+ "glib-sys",
+ "gstreamer-sys",
+ "libc",
+ "system-deps",
 ]
 
 [[package]]
@@ -806,13 +889,14 @@ dependencies = [
 
 [[package]]
 name = "half"
-version = "2.4.1"
+version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6dd08c532ae367adf81c312a4580bc67f1d0fe8bc9c460520283f4c0ff277888"
+checksum = "6ea2d84b969582b4b1864a92dc5d27cd2b77b622a8d79306834f1be5ba20d84b"
 dependencies = [
  "cfg-if",
  "crunchy",
  "num-traits",
+ "zerocopy",
 ]
 
 [[package]]
@@ -1283,6 +1367,7 @@ version = "2.0.0-rc.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4336a1e2b38848325241c72889086886004e589b7c74f335e60a8e8db5138a0b"
 dependencies = [
+ "half",
  "ndarray",
  "ort-sys",
  "smallvec",
@@ -1733,14 +1818,13 @@ dependencies = [
  "clap",
  "gst-plugin-console",
  "gst-plugin-lines",
- "gstreamer-video",
+ "gst-plugin-nanodet",
+ "gst-plugin-ort-inference",
+ "gst-plugin-tract-inference",
  "gstsmith-app",
- "ort",
  "tokio",
  "tracing",
  "tracing-subscriber",
- "tract-metal",
- "tract-onnx",
 ]
 
 [[package]]
@@ -2525,6 +2609,26 @@ checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
 dependencies = [
  "libc",
  "rustix",
+]
+
+[[package]]
+name = "zerocopy"
+version = "0.8.56"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "556764e583adb45a9f8d413c2a147fa7e8d821e48e12b14fd560b607998b75eb"
+dependencies = [
+ "zerocopy-derive",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.8.56"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2ab42fc20575779bd240faa45f94a74256f755c0fa9e89f0ede20d91d0cdfc1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

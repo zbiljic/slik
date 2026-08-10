@@ -1,15 +1,41 @@
-use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::path::Path;
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Context as _, Result};
 use gstsmith_app::gst::prelude::*;
 use gstsmith_app::{PipelineBin, gst, make};
-use tracing::info;
 
 use crate::bins::source::Source;
-use crate::infer::Detector;
-use crate::nanodet;
+
+const NANODET_INPUT_SIZE: i32 = 320;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum Runtime {
+    /// Pure-Rust `tract` runtime on the CPU.
+    Tract,
+    /// `tract` with its Metal execution provider.
+    TractMetal,
+    /// ONNX Runtime on the CPU.
+    Ort,
+    /// ONNX Runtime with its `CoreML` execution provider.
+    OrtCoreml,
+}
+
+impl Runtime {
+    fn factory(self) -> &'static str {
+        match self {
+            Self::Tract | Self::TractMetal => "tractinference",
+            Self::Ort | Self::OrtCoreml => "ortinference",
+        }
+    }
+
+    fn execution_provider(self) -> &'static str {
+        match self {
+            Self::Tract | Self::Ort => "cpu",
+            Self::TractMetal => "metal",
+            Self::OrtCoreml => "coreml",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum Pace {
@@ -33,7 +59,15 @@ impl Pace {
     }
 }
 
-pub(crate) fn build(source: &Source, pace: Pace) -> Result<(gst::Pipeline, Option<gst::Pad>)> {
+pub(crate) fn build(
+    source: &Source,
+    pace: Pace,
+    runtime: Runtime,
+    model: &Path,
+    model_info: &Path,
+    labels: &Path,
+    threads: Option<usize>,
+) -> Result<(gst::Pipeline, Option<gst::Pad>)> {
     let crop = make("videocrop", "crop")?;
 
     let scale = make("videoscale", "scale")?;
@@ -42,12 +76,10 @@ pub(crate) fn build(source: &Source, pace: Pace) -> Result<(gst::Pipeline, Optio
     let convert = make("videoconvert", "convert")?;
 
     let capsfilter = make("capsfilter", "caps")?;
-    let input_dim =
-        i32::try_from(nanodet::INPUT).context("NanoDet input dimension does not fit in i32")?;
     let caps = gst::Caps::builder("video/x-raw")
         .field("format", "BGR")
-        .field("width", input_dim)
-        .field("height", input_dim)
+        .field("width", NANODET_INPUT_SIZE)
+        .field("height", NANODET_INPUT_SIZE)
         .build();
     capsfilter.set_property("caps", &caps);
 
@@ -62,7 +94,22 @@ pub(crate) fn build(source: &Source, pace: Pace) -> Result<(gst::Pipeline, Optio
     queue.set_property("max-size-time", 0u64);
     queue.set_property("max-size-bytes", 0u32);
 
-    let identity = make("identity", "infer")?;
+    let inference = make(runtime.factory(), "infer")?;
+    inference.set_property("model-file", model.to_string_lossy().as_ref());
+    inference.set_property("model-info-file", model_info.to_string_lossy().as_ref());
+    inference.set_property_from_str("execution-provider", runtime.execution_provider());
+    // Keep video caps truthful and independently pack the model tensor in the
+    // BGR order expected by the published NanoDet model.
+    inference.set_property_from_str("model-channel-order", "bgr");
+    if matches!(runtime, Runtime::Ort | Runtime::OrtCoreml)
+        && let Some(threads) = threads
+    {
+        let threads = u32::try_from(threads).context("ORT thread count does not fit in u32")?;
+        inference.set_property("intra-op-threads", threads);
+    }
+
+    let decoder = make("nanodettensordec", "decode")?;
+    decoder.set_property("label-file", labels.to_string_lossy().as_ref());
 
     let sink = make("fakesink", "sink")?;
     sink.set_property("sync", false);
@@ -79,7 +126,8 @@ pub(crate) fn build(source: &Source, pace: Pace) -> Result<(gst::Pipeline, Optio
             &convert,
             &capsfilter,
             &queue,
-            &identity,
+            &inference,
+            &decoder,
             &sink,
         ])
         .context("adding pipeline elements")?;
@@ -103,7 +151,8 @@ pub(crate) fn build(source: &Source, pace: Pace) -> Result<(gst::Pipeline, Optio
         &convert,
         &capsfilter,
         &queue,
-        &identity,
+        &inference,
+        &decoder,
         &sink,
     ])
     .context("linking the detection preprocessing chain")?;
@@ -111,79 +160,36 @@ pub(crate) fn build(source: &Source, pace: Pace) -> Result<(gst::Pipeline, Optio
     Ok((pipeline, watch))
 }
 
-/// Attach a buffer probe to `element`'s src pad that runs `NanoDet` detection on
-/// each frame and prints the objects it sees.
-pub(crate) fn install_frame_probe(
-    pipeline: &gst::Pipeline,
-    element_name: &str,
-    model: Arc<dyn Detector>,
-) -> Result<()> {
-    let element = pipeline
-        .by_name(element_name)
-        .ok_or_else(|| anyhow!("pipeline has no element named '{element_name}'"))?;
-    let src_pad = element
-        .static_pad("src")
-        .ok_or_else(|| anyhow!("element '{element_name}' has no static src pad"))?;
-
-    let frames = Arc::new(AtomicU64::new(0));
-    let detections = Arc::new(AtomicU64::new(0));
-    let run_us = Arc::new(AtomicU64::new(0));
-    let last_beat = Arc::new(Mutex::new(Instant::now()));
-
-    src_pad.add_probe(gst::PadProbeType::BUFFER, move |pad, info| {
-        let t0 = Instant::now();
-        let result = nanodet::run_inference(pad, info, model.as_ref());
-        let dt = t0.elapsed();
-        match result {
-            Ok(n) => {
-                let f = frames.fetch_add(1, Relaxed) + 1;
-                detections.fetch_add(u64::try_from(n).unwrap_or(u64::MAX), Relaxed);
-                let dt_us = u64::try_from(dt.as_micros()).unwrap_or(u64::MAX);
-                let total_us = run_us.fetch_add(dt_us, Relaxed) + dt_us;
-                if let Ok(mut beat) = last_beat.lock()
-                    && (f == 1 || beat.elapsed() >= Duration::from_secs(1))
-                {
-                    let infer_ms = (dt.as_secs_f64() * 1000.0 * 100.0).round() / 100.0;
-                    // Integer average (µs → ms, no float cast) to satisfy clippy::cast_precision_loss.
-                    let avg_infer_ms = total_us / 1000 / f;
-                    info!(
-                        frames = frames.load(Relaxed),
-                        detections = detections.load(Relaxed),
-                        infer_ms,
-                        avg_infer_ms,
-                        "pipeline running"
-                    );
-                    *beat = Instant::now();
-                }
-            }
-            Err(err) => {
-                gst::element_error!(
-                    element,
-                    gst::CoreError::Failed,
-                    ("inference failed"),
-                    ["{err:#}"]
-                );
-                return gst::PadProbeReturn::Remove;
-            }
-        }
-        gst::PadProbeReturn::Ok
-    });
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-    use gstsmith_app::PipelineRunner;
+    use std::sync::Once;
 
     use super::*;
 
-    struct FailingDetector;
+    static INIT: Once = Once::new();
 
-    impl Detector for FailingDetector {
-        fn infer(&self, _input: &[f32]) -> Result<Vec<f32>> {
-            anyhow::bail!("fake detector failure")
-        }
+    fn init_plugins() {
+        INIT.call_once(|| {
+            gstsmith_app::init().expect("GStreamer should initialize");
+            gstnanodet::plugin_register_static().expect("NanoDet plugin should register");
+            gsttractinference::plugin_register_static().expect("Tract plugin should register");
+            gstortinference::plugin_register_static().expect("ORT plugin should register");
+        });
+    }
+
+    fn build_test_pipeline(
+        pace: Pace,
+        runtime: Runtime,
+    ) -> Result<(gst::Pipeline, Option<gst::Pad>)> {
+        build(
+            &Source::parse(None),
+            pace,
+            runtime,
+            Path::new("model.onnx"),
+            Path::new("model.onnx.modelinfo"),
+            Path::new("coco.names"),
+            None,
+        )
     }
 
     #[test]
@@ -205,53 +211,60 @@ mod tests {
 
     #[test]
     fn builds_test_source_pipeline() {
-        gstsmith_app::init().expect("GStreamer should initialize");
-        let (pipeline, watch) = build(&Source::parse(None), Pace::Fast).expect("pipeline builds");
+        init_plugins();
+        let (pipeline, watch) =
+            build_test_pipeline(Pace::Fast, Runtime::Tract).expect("pipeline builds");
         assert!(pipeline.by_name("source").is_some());
-        assert!(pipeline.by_name("infer").is_some());
+        let inference = pipeline.by_name("infer").expect("inference element exists");
+        assert_eq!(inference.type_().name(), "GstSmithTractInference");
+        let channel_order_value = inference.property_value("model-channel-order");
+        let (_, channel_order) = gst::glib::EnumValue::from_value(&channel_order_value)
+            .expect("model-channel-order has an enum value");
+        assert_eq!(channel_order.nick(), "bgr");
+        assert!(pipeline.by_name("model-color-order").is_none());
+        let decoder = pipeline.by_name("decode").expect("decoder element exists");
+        assert_eq!(decoder.type_().name(), "GstSmithNanoDetTensorDec");
         assert!(watch.is_none(), "static source needs no watchdog");
     }
 
     #[test]
     fn realtime_inserts_pace_element() {
-        gstsmith_app::init().expect("GStreamer should initialize");
-        let (pipeline, _) =
-            build(&Source::parse(Some("/x.mp4")), Pace::Realtime).expect("pipeline builds");
+        init_plugins();
+        let (pipeline, _) = build(
+            &Source::parse(Some("/x.mp4")),
+            Pace::Realtime,
+            Runtime::Ort,
+            Path::new("model.onnx"),
+            Path::new("model.onnx.modelinfo"),
+            Path::new("coco.names"),
+            Some(2),
+        )
+        .expect("pipeline builds");
         assert!(
             pipeline.by_name("pace").is_some(),
             "realtime inserts a pace identity"
         );
-        let (pipeline, _) =
-            build(&Source::parse(Some("/x.mp4")), Pace::Fast).expect("pipeline builds");
+        let (pipeline, _) = build(
+            &Source::parse(Some("/x.mp4")),
+            Pace::Fast,
+            Runtime::Tract,
+            Path::new("model.onnx"),
+            Path::new("model.onnx.modelinfo"),
+            Path::new("coco.names"),
+            None,
+        )
+        .expect("pipeline builds");
         assert!(
             pipeline.by_name("pace").is_none(),
             "fast has no pace element"
         );
     }
 
-    #[tokio::test]
-    async fn inference_failure_reaches_pipeline_bus() {
-        gstsmith_app::init().expect("GStreamer should initialize");
-        let (pipeline, watch) = build(&Source::parse(None), Pace::Fast).expect("pipeline builds");
-        assert!(watch.is_none(), "static source needs no watchdog");
-        install_frame_probe(&pipeline, "infer", Arc::new(FailingDetector))
-            .expect("frame probe installs");
-        let observed = pipeline.clone();
-
-        let result = tokio::time::timeout(
-            Duration::from_secs(2),
-            PipelineRunner::new(pipeline).run(std::future::pending()),
-        )
-        .await
-        .expect("pipeline runner should receive inference failure before timeout");
-        let err = result.expect_err("inference failure should stop the pipeline");
-        let detail = format!("{err:#}");
-
-        assert!(detail.contains("running inference"), "error was: {detail}");
-        assert!(
-            detail.contains("fake detector failure"),
-            "error was: {detail}"
-        );
-        assert_eq!(observed.current_state(), gst::State::Null);
+    #[test]
+    fn runtime_selects_plugin_and_provider() {
+        assert_eq!(Runtime::Tract.factory(), "tractinference");
+        assert_eq!(Runtime::TractMetal.execution_provider(), "metal");
+        assert_eq!(Runtime::Ort.factory(), "ortinference");
+        assert_eq!(Runtime::OrtCoreml.execution_provider(), "coreml");
     }
 }

@@ -16,14 +16,13 @@ anyhow = "1.0.104"
 clap = { version = "4.6.5", features = ["derive"] }
 gstconsole = { package = "gst-plugin-console", git = "https://github.com/zbiljic/gstsmith-rs", branch = "main" }
 gstlines = { package = "gst-plugin-lines", git = "https://github.com/zbiljic/gstsmith-rs", branch = "main" }
-gstreamer-video = { version = "0.25", features = ["v1_24"] }
+gstnanodet = { package = "gst-plugin-nanodet", git = "https://github.com/zbiljic/gstsmith-rs", branch = "main" }
+gstortinference = { package = "gst-plugin-ort-inference", git = "https://github.com/zbiljic/gstsmith-rs", branch = "main" }
 gstsmith-app = { git = "https://github.com/zbiljic/gstsmith-app-rs", branch = "main" }
-ort = "=2.0.0-rc.13"
+gsttractinference = { package = "gst-plugin-tract-inference", git = "https://github.com/zbiljic/gstsmith-rs", branch = "main" }
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-tract-metal = "0.23"
-tract-onnx = "0.23"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

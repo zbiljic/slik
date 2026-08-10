@@ -14,19 +14,18 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 gstconsole = { workspace = true }
 gstlines = { workspace = true }
-gstreamer-video = { workspace = true }
+gstnanodet = { workspace = true }
+gstortinference = { workspace = true }
 gstsmith-app = { workspace = true }
-ort = { workspace = true }
+gsttractinference = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-tract-metal = { workspace = true, optional = true }
-tract-onnx = { workspace = true }
 
 [features]
 default = []
-coreml = ["ort/coreml"]
-metal = ["dep:tract-metal"]
+coreml = ["gstortinference/coreml"]
+metal = ["gsttractinference/metal"]
 
 [lints]
 workspace = true

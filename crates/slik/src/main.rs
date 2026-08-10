@@ -8,14 +8,11 @@ use gstsmith_app::{PipelineRunner, gst};
 use tracing::{error, info};
 
 mod bins;
-mod infer;
 mod logging;
-mod nanodet;
 mod pipeline;
 
 use crate::bins::source::Source;
-use crate::infer::Runtime;
-use crate::pipeline::Pace;
+use crate::pipeline::{Pace, Runtime};
 
 #[derive(Debug, Parser)]
 #[command(version, about = "Run a GStreamer video detection pipeline")]
@@ -27,6 +24,22 @@ struct Cli {
         default_value = "crates/slik/models/nanodet-plus-m-320.onnx"
     )]
     model: PathBuf,
+
+    /// Model-info contract used by the gstsmith inference elements.
+    #[arg(
+        long,
+        value_name = "PATH",
+        default_value = "crates/slik/models/nanodet-plus-m-320.onnx.modelinfo"
+    )]
+    model_info: PathBuf,
+
+    /// COCO labels passed to the `NanoDet` tensor decoder.
+    #[arg(
+        long,
+        value_name = "PATH",
+        default_value = "crates/slik/src/coco.names"
+    )]
+    labels: PathBuf,
 
     /// Video source: empty/"test" = test pattern, a file path, or an rtsp:// URL carrying H.264 or H.265 video over RTP.
     #[arg(long, value_name = "URI")]
@@ -57,9 +70,12 @@ async fn main() -> Result<()> {
             cli.model.display()
         );
     }
-    info!(model = %cli.model.display(), runtime = ?cli.runtime, threads = ?cli.threads, "loading NanoDet model");
-    let model = infer::load(cli.runtime, &cli.model, cli.threads)?;
-    info!("model loaded");
+    if !cli.model_info.exists() {
+        anyhow::bail!("model-info file not found: {}", cli.model_info.display());
+    }
+    if !cli.labels.exists() {
+        anyhow::bail!("label file not found: {}", cli.labels.display());
+    }
 
     info!("initializing GStreamer");
     gstsmith_app::init().context("initializing GStreamer")?;
@@ -75,9 +91,15 @@ async fn main() -> Result<()> {
     let pace = cli.pace.resolve(&source);
     info!(?pace, "frame pacing");
     info!("building pipeline");
-    let (pipeline, watch) = pipeline::build(&source, pace)?;
-    info!("installing frame probe");
-    pipeline::install_frame_probe(&pipeline, "infer", model)?;
+    let (pipeline, watch) = pipeline::build(
+        &source,
+        pace,
+        cli.runtime,
+        &cli.model,
+        &cli.model_info,
+        &cli.labels,
+        cli.threads,
+    )?;
     info!(build = env!("SLIK_GIT_HASH"), "starting pipeline");
 
     let shutdown = async move {
@@ -105,6 +127,15 @@ fn register_plugins() -> Result<()> {
     gstlines::plugin_register_static()
         .map(|_| ())
         .context("registering the gstsmith lines plugin")?;
+    gstnanodet::plugin_register_static()
+        .map(|_| ())
+        .context("registering the gstsmith NanoDet tensor decoder plugin")?;
+    gsttractinference::plugin_register_static()
+        .map(|_| ())
+        .context("registering the gstsmith Tract inference plugin")?;
+    gstortinference::plugin_register_static()
+        .map(|_| ())
+        .context("registering the gstsmith ORT inference plugin")?;
     Ok(())
 }
 
