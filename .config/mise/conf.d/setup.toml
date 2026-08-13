@@ -124,16 +124,45 @@ depends = ["setup:model:nanodet-plus-m-320"]
 
 [tasks."setup:model:nanodet-plus-m-320"]
 description = "Download and verify the NanoDet-Plus-m 320x320 model and model info"
+run = "MISE_NANODET_SIZE=320 mise run setup:model:nanodet-plus-m"
+
+[tasks."setup:model:nanodet-plus-m-416"]
+description = "Download and verify the NanoDet-Plus-m 416x416 model and model info"
+run = "MISE_NANODET_SIZE=416 mise run setup:model:nanodet-plus-m"
+
+[tasks."setup:model:nanodet-plus-m"]
+description = "Download and verify a NanoDet-Plus-m model and model info fixture"
 run = '''
 set -eu
 
-model="crates/slik/models/nanodet-plus-m-320.onnx"
-model_url="https://github.com/RangiLyu/nanodet/releases/download/v1.0.0-alpha-1/nanodet-plus-m_320.onnx"
-model_expected="4f12723cce3d48e47ca92cb925ba74d97a965c069208edca660bbb9f7ce2c610"
+size="${MISE_NANODET_SIZE:?internal error: NanoDet size was not provided}"
+case "$size" in
+  320)
+    model="crates/slik/models/nanodet-plus-m-320.onnx"
+    model_url="https://github.com/RangiLyu/nanodet/releases/download/v1.0.0-alpha-1/nanodet-plus-m_320.onnx"
+    model_expected="4f12723cce3d48e47ca92cb925ba74d97a965c069208edca660bbb9f7ce2c610"
+    model_label="NanoDet-Plus-m 320x320 model"
+    ;;
+  416)
+    model="crates/slik/models/nanodet-plus-m-416.onnx"
+    model_url="https://github.com/RangiLyu/nanodet/releases/download/v1.0.0-alpha-1/nanodet-plus-m_416.onnx"
+    model_expected="59d2f166088889c902f523bf08079391993491324f0d84847e3c4016a8f7cc3d"
+    model_label="NanoDet-Plus-m 416x416 model"
+    ;;
+  *)
+    echo "Unsupported NanoDet-Plus-m size: $size (expected 320 or 416)." >&2
+    exit 2
+    ;;
+esac
+
 model_info="${model}.modelinfo"
 gstsmith_revision="c989860b8da726d84d7f3690f9cd41f8b2cc6529"
-model_info_url="https://raw.githubusercontent.com/zbiljic/gstsmith-rs/${gstsmith_revision}/analytics/nanodet/tests/fixtures/nanodet-plus-m-320.onnx.modelinfo"
-model_info_expected="fba887f2e0106ceb16c053193086db274820199ff4edda33def73412ac48a359"
+model_info_url="https://raw.githubusercontent.com/zbiljic/gstsmith-rs/${gstsmith_revision}/analytics/nanodet/tests/fixtures/nanodet-plus-m-${size}.onnx.modelinfo"
+if [ "$size" = 320 ]; then
+  model_info_expected="fba887f2e0106ceb16c053193086db274820199ff4edda33def73412ac48a359"
+else
+  model_info_expected="4492c0c4079df8fb6fc00fb6a03d7528a6f4b58c11dcc6cf50c9de8774a06d27"
+fi
 
 sha256() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -158,7 +187,7 @@ install_asset() {
       echo "$asset_label checksum mismatch: $asset_path" >&2
       echo "Expected: $asset_expected" >&2
       echo "Actual:   $asset_actual" >&2
-      echo "Remove the file and rerun 'mise run setup:model:nanodet-plus-m-320' to download a clean copy." >&2
+      echo "Remove the file and rerun 'mise run setup:model:nanodet-plus-m-${size}' to download a clean copy." >&2
       return 1
     fi
     echo "$asset_label is already present and verified: $asset_path"
@@ -191,6 +220,6 @@ install_asset() {
   echo "$asset_label installed and verified: $asset_path"
 }
 
-install_asset "$model" "$model_url" "$model_expected" "NanoDet-Plus-m 320x320 model"
+install_asset "$model" "$model_url" "$model_expected" "$model_label"
 install_asset "$model_info" "$model_info_url" "$model_info_expected" "NanoDet model info"
 '''
