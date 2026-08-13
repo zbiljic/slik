@@ -11,8 +11,9 @@ mod bins;
 mod logging;
 mod pipeline;
 
+use crate::bins::sink::Output;
 use crate::bins::source::Source;
-use crate::pipeline::{Output, Pace, Runtime};
+use crate::pipeline::{Pace, Runtime};
 
 #[derive(Debug, Parser)]
 #[command(version, about = "Run a GStreamer video detection pipeline")]

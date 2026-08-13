@@ -2,8 +2,9 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 use gstsmith_app::gst::prelude::*;
-use gstsmith_app::{gst, make};
+use gstsmith_app::{PipelineBin, gst, make};
 
+use crate::bins::sink::{Output, Sink};
 use crate::bins::source::Source;
 
 const NANODET_INPUT_SIZE: i32 = 320;
@@ -18,14 +19,6 @@ pub(crate) enum Runtime {
     Ort,
     /// ONNX Runtime with its `CoreML` execution provider.
     OrtCoreml,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub(crate) enum Output {
-    /// Discard decoded frames without displaying them.
-    Discard,
-    /// Display the model-sized frame with detection metadata overlaid.
-    Preview,
 }
 
 impl Runtime {
@@ -143,32 +136,11 @@ pub(crate) fn build(
         ])
         .context("adding pipeline elements")?;
 
-    match output {
-        Output::Discard => {
-            let sink = make("fakesink", "sink")?;
-            sink.set_property("sync", false);
-            pipeline.add(&sink).context("adding output sink")?;
-            gst::Element::link_many([&decoder, &sink]).context("linking discard output")?;
-        }
-        Output::Preview => {
-            let preview_queue = make("queue", "preview-queue")?;
-            preview_queue.set_property_from_str("leaky", "downstream");
-            preview_queue.set_property("max-size-buffers", 1u32);
-            preview_queue.set_property("max-size-time", 0u64);
-            preview_queue.set_property("max-size-bytes", 0u32);
-
-            let overlay = make("objectdetectionoverlay", "overlay")?;
-            let preview_convert = make("videoconvert", "preview-convert")?;
-            let sink = make("autovideosink", "sink")?;
-            sink.set_property("sync", false);
-
-            pipeline
-                .add_many([&preview_queue, &overlay, &preview_convert, &sink])
-                .context("adding preview output elements")?;
-            gst::Element::link_many([&decoder, &preview_queue, &overlay, &preview_convert, &sink])
-                .context("linking preview output")?;
-        }
-    }
+    let sink_bin = Sink::new(output).build()?;
+    pipeline.add(&sink_bin).context("adding output bin")?;
+    decoder
+        .link(&sink_bin)
+        .context("linking decoder to output bin")?;
 
     if pace == Pace::Realtime {
         let paced = make("identity", "pace")?;
@@ -320,55 +292,6 @@ mod tests {
         assert_eq!(Runtime::TractMetal.execution_provider(), "metal");
         assert_eq!(Runtime::Ort.factory(), "ortinference");
         assert_eq!(Runtime::OrtCoreml.execution_provider(), "coreml");
-    }
-
-    #[test]
-    fn discard_uses_fake_sink_without_overlay() {
-        init_plugins();
-        let (pipeline, _) = build_test_pipeline(Pace::Fast, Runtime::Tract, Output::Discard)
-            .expect("pipeline builds");
-        let sink = pipeline.by_name("sink").expect("output sink exists");
-        assert_eq!(sink.type_().name(), "GstFakeSink");
-        assert!(!sink.property::<bool>("sync"));
-        assert!(pipeline.by_name("overlay").is_none());
-    }
-
-    #[test]
-    fn preview_uses_bounded_output_chain() {
-        init_plugins();
-        let (pipeline, _) = build_test_pipeline(Pace::Fast, Runtime::Tract, Output::Preview)
-            .expect("pipeline builds");
-        for (name, factory) in [
-            ("preview-queue", "GstQueue"),
-            ("overlay", "GstObjectDetectionOverlay"),
-            ("preview-convert", "GstVideoConvert"),
-            ("sink", "GstAutoVideoSink"),
-        ] {
-            assert_eq!(
-                pipeline
-                    .by_name(name)
-                    .expect("preview element exists")
-                    .type_()
-                    .name(),
-                factory
-            );
-        }
-        let queue = pipeline
-            .by_name("preview-queue")
-            .expect("preview queue exists");
-        let leaky_value = queue.property_value("leaky");
-        let (_, leaky) = gst::glib::EnumValue::from_value(&leaky_value)
-            .expect("preview queue leaky has an enum value");
-        assert_eq!(leaky.nick(), "downstream");
-        assert_eq!(queue.property::<u32>("max-size-buffers"), 1);
-        assert_eq!(queue.property::<u64>("max-size-time"), 0);
-        assert_eq!(queue.property::<u32>("max-size-bytes"), 0);
-        assert!(
-            !pipeline
-                .by_name("sink")
-                .expect("preview sink exists")
-                .property::<bool>("sync")
-        );
     }
 
     #[test]
