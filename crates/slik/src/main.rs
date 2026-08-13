@@ -12,7 +12,7 @@ mod logging;
 mod pipeline;
 
 use crate::bins::source::Source;
-use crate::pipeline::{Pace, Runtime};
+use crate::pipeline::{Output, Pace, Runtime};
 
 #[derive(Debug, Parser)]
 #[command(version, about = "Run a GStreamer video detection pipeline")]
@@ -53,16 +53,44 @@ struct Cli {
     #[arg(long, value_enum, default_value_t = Runtime::Tract)]
     runtime: Runtime,
 
+    /// Output mode: discard, or preview the model-sized annotated video (requires optional `GStreamer` plugins).
+    #[arg(long, value_enum, default_value_t = Output::Discard)]
+    output: Output,
+
     /// Intra-op thread count for the ort backend (ignored by tract). Default: ort's own.
     #[arg(long, value_name = "N")]
     threads: Option<usize>,
 }
 
+#[cfg(target_os = "macos")]
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    if cli.output == Output::Preview {
+        // GStreamer video sinks must be created on Cocoa's application main
+        // thread. Keep the existing async runner, but host preview inside
+        // GStreamer's macOS application loop so autovideosink can create its
+        // window correctly.
+        gst::macos_main(|| run_with_tokio(cli))
+    } else {
+        run_with_tokio(cli)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
 #[tokio::main]
 async fn main() -> Result<()> {
-    logging::init();
+    run(Cli::parse()).await
+}
 
-    let cli = Cli::parse();
+#[cfg(target_os = "macos")]
+fn run_with_tokio(cli: Cli) -> Result<()> {
+    tokio::runtime::Runtime::new()
+        .context("creating Tokio runtime")?
+        .block_on(run(cli))
+}
+
+async fn run(cli: Cli) -> Result<()> {
+    logging::init();
 
     if !cli.model.exists() {
         anyhow::bail!(
@@ -95,6 +123,7 @@ async fn main() -> Result<()> {
         &source,
         pace,
         cli.runtime,
+        cli.output,
         &cli.model,
         &cli.model_info,
         &cli.labels,
