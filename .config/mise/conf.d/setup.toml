@@ -86,6 +86,38 @@ fi
 echo "All required GStreamer runtime elements are available."
 '''
 
+[tasks."check:gstreamer:preview"]
+description = "Check the optional GStreamer plugins used by preview output"
+depends = ["check:gstreamer"]
+run = '''
+set -eu
+
+missing=""
+for element in objectdetectionoverlay autovideosink; do
+  if ! gst-inspect-1.0 --exists "$element"; then
+    missing="$missing $element"
+  fi
+done
+
+if [ -n "$missing" ]; then
+  echo "Missing optional GStreamer preview elements:$missing" >&2
+  case "$(uname -s)" in
+    Darwin)
+      echo "Install it with 'brew install gstreamer', then rerun this task." >&2
+      ;;
+    Linux)
+      echo "On Debian/Ubuntu, install: gstreamer1.0-plugins-bad gstreamer1.0-plugins-good" >&2
+      ;;
+    *)
+      echo "Install the GStreamer bad and good plugin collections, then rerun this task." >&2
+      ;;
+  esac
+  exit 1
+fi
+
+echo "GStreamer preview elements are available: objectdetectionoverlay autovideosink."
+'''
+
 [tasks."setup:model"]
 description = "Download and verify all required models"
 depends = ["setup:model:nanodet-plus-m-320"]
