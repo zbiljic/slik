@@ -18,7 +18,7 @@ use crate::pipeline::{Pace, Runtime};
 #[derive(Debug, Parser)]
 #[command(version, about = "Run a GStreamer video detection pipeline")]
 struct Cli {
-    /// Path to the NanoDet-Plus-m 320x320 ONNX model.
+    /// Path to a `NanoDet` ONNX model; with --model-info, the pair must describe a supported 320x320 or 416x416 contract.
     #[arg(
         long,
         value_name = "PATH",
@@ -26,7 +26,7 @@ struct Cli {
     )]
     model: PathBuf,
 
-    /// Model-info contract used by the gstsmith inference elements.
+    /// Model-info contract for a supported `NanoDet` 320x320 or 416x416 model.
     #[arg(
         long,
         value_name = "PATH",
@@ -95,7 +95,7 @@ async fn run(cli: Cli) -> Result<()> {
 
     if !cli.model.exists() {
         anyhow::bail!(
-            "model file not found: {} — download the NanoDet-Plus-m 320x320 ONNX and pass it with --model",
+            "model file not found: {} — download a supported NanoDet 320x320 or 416x416 ONNX model and pass it with --model",
             cli.model.display()
         );
     }

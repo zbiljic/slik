@@ -7,8 +7,6 @@ use gstsmith_app::{PipelineBin, gst, make};
 use crate::bins::sink::{Output, Sink};
 use crate::bins::source::Source;
 
-const NANODET_INPUT_SIZE: i32 = 320;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum Runtime {
     /// Pure-Rust `tract` runtime on the CPU.
@@ -84,8 +82,6 @@ pub(crate) fn build(
     let capsfilter = make("capsfilter", "caps")?;
     let caps = gst::Caps::builder("video/x-raw")
         .field("format", "BGR")
-        .field("width", NANODET_INPUT_SIZE)
-        .field("height", NANODET_INPUT_SIZE)
         .build();
     capsfilter.set_property("caps", &caps);
 
@@ -236,6 +232,29 @@ mod tests {
         let decoder = pipeline.by_name("decode").expect("decoder element exists");
         assert_eq!(decoder.type_().name(), "GstSmithNanoDetTensorDec");
         assert!(watch.is_none(), "static source needs no watchdog");
+    }
+
+    #[test]
+    fn model_caps_delegate_spatial_dimensions_to_inference() {
+        init_plugins();
+        for (runtime, expected_type) in [
+            (Runtime::Tract, "GstSmithTractInference"),
+            (Runtime::Ort, "GstSmithOrtInference"),
+        ] {
+            let (pipeline, _) =
+                build_test_pipeline(Pace::Fast, runtime, Output::Discard).expect("pipeline builds");
+            let capsfilter = pipeline.by_name("caps").expect("capsfilter exists");
+            let caps = capsfilter.property::<gst::Caps>("caps");
+            let structure = caps.structure(0).expect("caps structure exists");
+            assert_eq!(
+                structure.get::<&str>("format").expect("format exists"),
+                "BGR"
+            );
+            structure.get::<i32>("width").unwrap_err();
+            structure.get::<i32>("height").unwrap_err();
+            let inference = pipeline.by_name("infer").expect("inference element exists");
+            assert_eq!(inference.type_().name(), expected_type);
+        }
     }
 
     #[test]
