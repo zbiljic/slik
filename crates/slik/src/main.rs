@@ -12,7 +12,7 @@ mod logging;
 mod pipeline;
 
 use crate::bins::sink::Output;
-use crate::bins::source::Source;
+use crate::bins::source::{RtspOptions, RtspTransport, Source};
 use crate::pipeline::{Pace, Runtime};
 
 #[derive(Debug, Parser)]
@@ -61,6 +61,18 @@ struct Cli {
     /// Intra-op thread count for the ort backend (ignored by tract). Default: ort's own.
     #[arg(long, value_name = "N")]
     threads: Option<usize>,
+
+    /// RTSP lower transport: tcp, udp (unicast), or auto (tcp+udp-mcast+udp). Ignored for file/test sources.
+    #[arg(long, value_enum, default_value_t = RtspTransport::Tcp)]
+    rtsp_transport: RtspTransport,
+
+    /// RTSP jitterbuffer latency in milliseconds. Ignored for file/test sources.
+    #[arg(long, value_name = "N", default_value_t = 2000)]
+    rtsp_latency_ms: u32,
+
+    /// Bound RTSP jitterbuffer latency by dropping late data. Ignored for file/test sources. Default: false.
+    #[arg(long, default_value_t = false)]
+    rtsp_drop_on_latency: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -111,7 +123,14 @@ async fn run(cli: Cli) -> Result<()> {
     info!("registering plugins");
     register_plugins()?;
 
-    let source = Source::parse(cli.source.as_deref());
+    let source = Source::parse_with_options(
+        cli.source.as_deref(),
+        RtspOptions {
+            transport: cli.rtsp_transport,
+            latency_ms: cli.rtsp_latency_ms,
+            drop_on_latency: cli.rtsp_drop_on_latency,
+        },
+    );
     let watchdog_label = if source.is_rtsp() {
         "rtsp source did not produce decodable H.264 or H.265 video over RTP"
     } else {
