@@ -120,19 +120,20 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "bit-set"
-version = "0.10.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09ec2f926cc3060f09db9ebc5b52823d85268d24bb917e472c0c4bea35780a7d"
+checksum = "56d87354e4229f54a44f7bf2435906a4656dba36026ab6eaca629a2c436a691c"
 dependencies = [
  "bit-vec",
 ]
 
 [[package]]
 name = "bit-vec"
-version = "0.9.1"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b71798fca2c1fe1086445a7258a4bc81e6e49dcd24c8d0dd9a1e57395b603f51"
+checksum = "5727b15fa97d4f4fee0a3b7c3d550ed0269f54329207b86388de918604e31269"
 dependencies = [
+ "borsh",
  "serde",
 ]
 
@@ -147,6 +148,30 @@ name = "block"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d8c1fef690941d3e7788d328517591fecc684c084084702d6ff1641e993699a"
+
+[[package]]
+name = "borsh"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "553c5d846a6ba5150c65e3b1b8ec073bcf1abc20f9b7220de384a4443ea4e20a"
+dependencies = [
+ "borsh-derive",
+ "bytes",
+ "cfg_aliases",
+]
+
+[[package]]
+name = "borsh-derive"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12cdfe656708a01f89b451a7d36466e6fe6c414de0aa18fc54f864f6f9ca9f56"
+dependencies = [
+ "once_cell",
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
+]
 
 [[package]]
 name = "bumpalo"
@@ -199,10 +224,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
-name = "chacha20"
-version = "0.10.1"
+name = "cfg_aliases"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d524456ba66e72eb8b115ff89e01e497f8e6d11d78b70b1aa13c0fbd97540a81"
+checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
+
+[[package]]
+name = "chacha20"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -676,7 +707,7 @@ dependencies = [
 [[package]]
 name = "gst-inference-common"
 version = "0.1.0"
-source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#c989860b8da726d84d7f3690f9cd41f8b2cc6529"
+source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#2633730f187d809b41de604c423d81552da04ef7"
 dependencies = [
  "gstreamer",
  "gstreamer-analytics",
@@ -685,7 +716,7 @@ dependencies = [
 [[package]]
 name = "gst-plugin-console"
 version = "0.1.0"
-source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#c989860b8da726d84d7f3690f9cd41f8b2cc6529"
+source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#2633730f187d809b41de604c423d81552da04ef7"
 dependencies = [
  "gst-plugin-version-helper",
  "gstreamer",
@@ -695,7 +726,7 @@ dependencies = [
 [[package]]
 name = "gst-plugin-lines"
 version = "0.1.0"
-source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#c989860b8da726d84d7f3690f9cd41f8b2cc6529"
+source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#2633730f187d809b41de604c423d81552da04ef7"
 dependencies = [
  "gst-plugin-version-helper",
  "gstreamer",
@@ -706,7 +737,7 @@ dependencies = [
 [[package]]
 name = "gst-plugin-nanodet"
 version = "0.1.0"
-source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#c989860b8da726d84d7f3690f9cd41f8b2cc6529"
+source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#2633730f187d809b41de604c423d81552da04ef7"
 dependencies = [
  "byte-slice-cast",
  "gst-plugin-version-helper",
@@ -720,7 +751,7 @@ dependencies = [
 [[package]]
 name = "gst-plugin-ort-inference"
 version = "0.1.0"
-source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#c989860b8da726d84d7f3690f9cd41f8b2cc6529"
+source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#2633730f187d809b41de604c423d81552da04ef7"
 dependencies = [
  "gst-inference-common",
  "gst-plugin-version-helper",
@@ -735,7 +766,7 @@ dependencies = [
 [[package]]
 name = "gst-plugin-tract-inference"
 version = "0.1.0"
-source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#c989860b8da726d84d7f3690f9cd41f8b2cc6529"
+source = "git+https://github.com/zbiljic/gstsmith-rs?branch=main#2633730f187d809b41de604c423d81552da04ef7"
 dependencies = [
  "gst-inference-common",
  "gst-plugin-version-helper",
@@ -879,7 +910,7 @@ dependencies = [
 [[package]]
 name = "gstsmith-app"
 version = "0.1.0"
-source = "git+https://github.com/zbiljic/gstsmith-app-rs?branch=main#f1e5dc699113fe6ccdcecfe7342009e508a1f4c0"
+source = "git+https://github.com/zbiljic/gstsmith-app-rs?branch=main#4e3d097788a73998912e2cbf4b02116c44c8d38b"
 dependencies = [
  "anyhow",
  "futures",
@@ -1251,6 +1282,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-bigint"
+version = "0.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c89e69e7e0f03bea5ef08013795c25018e101932225a656383bd384495ecc367"
+dependencies = [
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "num-complex"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1274,6 +1315,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824"
 dependencies = [
+ "num-bigint",
  "num-integer",
  "num-traits",
 ]
@@ -1470,6 +1512,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc0d895b311e3af9902528fbb8f928688abbd95872819320517cc24ca6b2bd08"
 dependencies = [
  "num-integer",
+]
+
+[[package]]
+name = "proc-macro-crate"
+version = "3.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e67ba7e9b2b56446f1d419b1d807906278ffa1a658a8a5d8a39dcb1f5a78614f"
+dependencies = [
+ "toml_edit",
 ]
 
 [[package]]
@@ -2105,9 +2156,9 @@ dependencies = [
 
 [[package]]
 name = "tract-core"
-version = "0.23.4"
+version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "608e176a669d5da02cccc92bbfe5ee4e57686ed8841022608a9eba014d3b7886"
+checksum = "49647af4b6a0c5522c0c9b8120ce517146f2a7fd67797a7c6ab14fe91f01c5d5"
 dependencies = [
  "anyhow",
  "anymap3",
@@ -2135,9 +2186,9 @@ dependencies = [
 
 [[package]]
 name = "tract-data"
-version = "0.23.4"
+version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "870236dd45aaeb1381023cb709a67ff14ece608ee0b37f99aa166d166db9b0d0"
+checksum = "33bb72b6667b6a4a698a263044aec741dc2887425ada192874f7b80b8fb3f85c"
 dependencies = [
  "anyhow",
  "downcast-rs",
@@ -2146,7 +2197,7 @@ dependencies = [
  "dyn-hash",
  "half",
  "inventory",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "lazy_static",
  "libm",
  "maplit",
@@ -2163,9 +2214,9 @@ dependencies = [
 
 [[package]]
 name = "tract-extra"
-version = "0.23.4"
+version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "effcae1ebfce133e8bf6c79ad31298cbee0a9eceb3e4642fe1d14cb54cca78e6"
+checksum = "cdd571adedfa2108532688c12e94b95640c87793bdaffd3daef238fed5a071ad"
 dependencies = [
  "tract-nnef",
  "tract-pulse",
@@ -2173,9 +2224,9 @@ dependencies = [
 
 [[package]]
 name = "tract-gpu"
-version = "0.23.4"
+version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "210248491975257dfff5a405afdedce95cc879ad6361e617ec76a0ae248382df"
+checksum = "2cb00b078218589e2c6b2dce9e089d84973ac1af00791d5c82ad1ab43a51e0e6"
 dependencies = [
  "anyhow",
  "derive-new",
@@ -2190,9 +2241,9 @@ dependencies = [
 
 [[package]]
 name = "tract-hir"
-version = "0.23.4"
+version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28783b2bb583177685f65016a866b01eb3d383bce4fa7ae1b9692b325b64449d"
+checksum = "c17fd20ade88f142bf0419d899c3ce56fe00ee7d208794d5eb9c86059649b89c"
 dependencies = [
  "derive-new",
  "log",
@@ -2201,9 +2252,9 @@ dependencies = [
 
 [[package]]
 name = "tract-linalg"
-version = "0.23.4"
+version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3e01491f7360806ef061af4c016a2d0a801d586768896394a0b8a7d6872c2b0"
+checksum = "c4aa27179d6809f4f5797ed2d0df8d0a79588c5ec7a78a68eb98c3aec85fa9f4"
 dependencies = [
  "byteorder",
  "cc",
@@ -2213,7 +2264,9 @@ dependencies = [
  "dyn-eq",
  "dyn-hash",
  "half",
+ "inventory",
  "lazy_static",
+ "libc",
  "log",
  "minijinja",
  "num-traits",
@@ -2225,9 +2278,9 @@ dependencies = [
 
 [[package]]
 name = "tract-metal"
-version = "0.23.4"
+version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8dcf723c4485e260ee3c4b359e3a65d0b0af97f8c686476008e6126aa7c96f53"
+checksum = "94804a8a45b32ae4e1454ff017e4d1585e1956f5f50b448a3dc624877674272f"
 dependencies = [
  "anyhow",
  "derive-new",
@@ -2245,9 +2298,9 @@ dependencies = [
 
 [[package]]
 name = "tract-nnef"
-version = "0.23.4"
+version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00417fabf01aeea7bc56107367862e5bb8da18c9ad850c9061d3823700479ecc"
+checksum = "0e746cd34227b14280dbd2ac176400224f6407ea304b6c16f87b5be757ce73b4"
 dependencies = [
  "byteorder",
  "erased-serde",
@@ -2267,16 +2320,20 @@ dependencies = [
 
 [[package]]
 name = "tract-onnx"
-version = "0.23.4"
+version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3215dd27bddd2a041a20fee750013b400135186d3485501c9274c755b19ceb0"
+checksum = "320e35b04af77879b05921ab0509a44b77f52fcd452e92162e8052f5d1f4a762"
 dependencies = [
  "bytes",
  "derive-new",
  "dyn-eq",
  "log",
  "memmap2",
+ "nom",
+ "nom-language",
  "num-integer",
+ "num-rational",
+ "num-traits",
  "prost",
  "smallvec",
  "tract-extra",
@@ -2288,9 +2345,9 @@ dependencies = [
 
 [[package]]
 name = "tract-onnx-opl"
-version = "0.23.4"
+version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44f549ad3f245c1c00ce710c66cc0e086be0b637f35934d37b655ff175e1ab3e"
+checksum = "02e723cf0756822155aff3f4046cb85c62ccd8fffd0ea39290b1640b67ddbf9f"
 dependencies = [
  "dyn-eq",
  "getrandom",
@@ -2304,9 +2361,9 @@ dependencies = [
 
 [[package]]
 name = "tract-pulse"
-version = "0.23.4"
+version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a164e22e96ab9b5c90458fa270700570d87963e3dec9ccaac1ab18d9fa763ce2"
+checksum = "7af0b850fc74a39da37f6ace584cd54dce773be9b7ec71f45f4011cb0125db3c"
 dependencies = [
  "downcast-rs",
  "dyn-eq",
@@ -2320,9 +2377,9 @@ dependencies = [
 
 [[package]]
 name = "tract-pulse-opl"
-version = "0.23.4"
+version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65418f9e93e0af0d567f4f2f1bf2309b53930fa2543c635a69fda10c87a04987"
+checksum = "e0629fb3c289fb906d95a2aa1a71b4389511e8620f8bde3c711073e393414729"
 dependencies = [
  "downcast-rs",
  "dyn-eq",
@@ -2332,9 +2389,9 @@ dependencies = [
 
 [[package]]
 name = "tract-transformers"
-version = "0.23.4"
+version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8471ebf7f52d226552283d9130539595540c28ed41b8e032df3830507d3ccdd5"
+checksum = "a075c3a29baf4a859c67a69fd4643c43ccda51e9644d74af9481937a7e57f710"
 dependencies = [
  "float-ord",
  "rayon",
