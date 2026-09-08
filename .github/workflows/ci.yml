@@ -48,6 +48,8 @@ jobs:
 
       - name: Setup mise
         uses: jdx/mise-action@v4
+        with:
+          version: ${{ vars.MISE_VERSION || 'latest' }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -91,6 +93,8 @@ jobs:
 
       - name: Setup mise
         uses: jdx/mise-action@v4
+        with:
+          version: ${{ vars.MISE_VERSION || 'latest' }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
