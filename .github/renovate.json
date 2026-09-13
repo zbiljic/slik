@@ -26,6 +26,10 @@
       "description": ["Use ci semantic type for workflow files"],
       "matchFileNames": [".github/workflows/**"],
       "semanticCommitType": "ci"
+    },
+    {
+      "matchManagers": ["cargo"],
+      "rangeStrategy": "bump"
     }
   ]
 }
