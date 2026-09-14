@@ -97,7 +97,7 @@ jobs:
           github.event.pull_request.head.repo.full_name != github.repository ||
           !startsWith(github.head_ref, 'renovate/') }}
     name: Check Optional Backends
-    runs-on: macos-latest
+    runs-on: ${{ vars.RUNNER_MACOS || 'macos-26' }}
     timeout-minutes: 20
 
     steps:
