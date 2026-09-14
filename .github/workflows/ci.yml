@@ -44,7 +44,8 @@ jobs:
             gstreamer1.0-plugins-good \
             gstreamer1.0-tools \
             libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev
+            libgstreamer-plugins-base1.0-dev \
+            libssl-dev
 
       - name: Setup mise
         uses: jdx/mise-action@v4
