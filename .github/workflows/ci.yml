@@ -48,7 +48,7 @@ jobs:
             libssl-dev
 
       - name: Setup mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@v5
         with:
           version: ${{ vars.MISE_VERSION || 'latest' }}
 
@@ -109,7 +109,7 @@ jobs:
         run: brew install gstreamer
 
       - name: Setup mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@v5
         with:
           version: ${{ vars.MISE_VERSION || 'latest' }}
 
