@@ -54,6 +54,8 @@ jobs:
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
 
       - name: Check dependency policy
         run: mise run deps:check
@@ -115,6 +117,8 @@ jobs:
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
 
       - name: Check build with all features
         run: mise run check:all-features
