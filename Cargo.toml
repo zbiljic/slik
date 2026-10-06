@@ -20,7 +20,7 @@ gstnanodet = { package = "gst-plugin-nanodet", git = "https://github.com/zbiljic
 gstortinference = { package = "gst-plugin-ort-inference", git = "https://github.com/zbiljic/gstsmith-rs", branch = "main" }
 gstsmith-app = { git = "https://github.com/zbiljic/gstsmith-app-rs", branch = "main" }
 gsttractinference = { package = "gst-plugin-tract-inference", git = "https://github.com/zbiljic/gstsmith-rs", branch = "main" }
-tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "signal"] }
+tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread", "signal"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
