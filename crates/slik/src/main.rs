@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
@@ -18,29 +18,17 @@ use crate::pipeline::{Pace, Runtime};
 #[derive(Debug, Parser)]
 #[command(version, about = "Run a GStreamer video detection pipeline")]
 struct Cli {
-    /// Path to a `NanoDet` ONNX model; with --model-info, the pair must describe a supported 320x320 or 416x416 contract.
-    #[arg(
-        long,
-        value_name = "PATH",
-        default_value = "crates/slik/models/nanodet-plus-m-320.onnx"
-    )]
-    model: PathBuf,
+    /// Path to a `NanoDet` ONNX model; defaults to the bundled 320x320 model.
+    #[arg(long, value_name = "PATH")]
+    model: Option<PathBuf>,
 
-    /// Model-info contract for a supported `NanoDet` 320x320 or 416x416 model.
-    #[arg(
-        long,
-        value_name = "PATH",
-        default_value = "crates/slik/models/nanodet-plus-m-320.onnx.modelinfo"
-    )]
-    model_info: PathBuf,
+    /// Model-info contract; defaults to the contract bundled with the selected default model.
+    #[arg(long, value_name = "PATH")]
+    model_info: Option<PathBuf>,
 
-    /// COCO labels passed to the `NanoDet` tensor decoder.
-    #[arg(
-        long,
-        value_name = "PATH",
-        default_value = "crates/slik/src/coco.names"
-    )]
-    labels: PathBuf,
+    /// COCO labels passed to the `NanoDet` tensor decoder; defaults to the bundled labels.
+    #[arg(long, value_name = "PATH")]
+    labels: Option<PathBuf>,
 
     /// Video source: empty/"test" = test pattern, a file path, or an rtsp:// URL carrying H.264 or H.265 video over RTP.
     #[arg(long, value_name = "URI")]
@@ -100,17 +88,37 @@ fn run_with_tokio(cli: Cli) -> Result<()> {
 async fn run(cli: Cli) -> Result<()> {
     logging::init();
 
-    if !cli.model.exists() {
+    let resource_dir = std::env::var_os("SLIK_RESOURCE_DIR").map(PathBuf::from);
+    let model = resolve_asset(
+        cli.model.as_deref(),
+        resource_dir.as_deref(),
+        "nanodet-plus-m-320.onnx",
+        Path::new("crates/slik/models/nanodet-plus-m-320.onnx"),
+    );
+    let model_info = resolve_asset(
+        cli.model_info.as_deref(),
+        resource_dir.as_deref(),
+        "nanodet-plus-m-320.onnx.modelinfo",
+        Path::new("crates/slik/models/nanodet-plus-m-320.onnx.modelinfo"),
+    );
+    let labels = resolve_asset(
+        cli.labels.as_deref(),
+        resource_dir.as_deref(),
+        "coco.names",
+        Path::new("crates/slik/src/coco.names"),
+    );
+
+    if !model.exists() {
         anyhow::bail!(
             "model file not found: {} — download a supported NanoDet 320x320 or 416x416 ONNX model and pass it with --model",
-            cli.model.display()
+            model.display()
         );
     }
-    if !cli.model_info.exists() {
-        anyhow::bail!("model-info file not found: {}", cli.model_info.display());
+    if !model_info.exists() {
+        anyhow::bail!("model-info file not found: {}", model_info.display());
     }
-    if !cli.labels.exists() {
-        anyhow::bail!("label file not found: {}", cli.labels.display());
+    if !labels.exists() {
+        anyhow::bail!("label file not found: {}", labels.display());
     }
 
     info!("initializing GStreamer");
@@ -139,9 +147,9 @@ async fn run(cli: Cli) -> Result<()> {
         pace,
         cli.runtime,
         cli.output,
-        &cli.model,
-        &cli.model_info,
-        &cli.labels,
+        &model,
+        &model_info,
+        &labels,
         cli.threads,
     )?;
     info!(build = env!("SLIK_GIT_HASH"), "starting pipeline");
@@ -162,6 +170,23 @@ async fn run(cli: Cli) -> Result<()> {
 
     info!(?exit, build = env!("SLIK_GIT_HASH"), "pipeline stopped");
     Ok(())
+}
+
+fn resolve_asset(
+    explicit: Option<&Path>,
+    resource_dir: Option<&Path>,
+    bundled_name: &str,
+    development_default: &Path,
+) -> PathBuf {
+    explicit.map_or_else(
+        || {
+            resource_dir.map_or_else(
+                || development_default.to_owned(),
+                |dir| dir.join(bundled_name),
+            )
+        },
+        Path::to_owned,
+    )
 }
 
 fn register_plugins() -> Result<()> {
@@ -196,5 +221,49 @@ async fn link_watchdog(pad: gst::Pad, timeout: Duration, diagnostic: &str) {
         std::future::pending::<()>().await;
     } else {
         eprintln!("{diagnostic} within {timeout:?}; shutting down");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_asset_path_wins_over_bundle_resources() {
+        assert_eq!(
+            resolve_asset(
+                Some(Path::new("custom/model.onnx")),
+                Some(Path::new("/bundle/resources")),
+                "default.onnx",
+                Path::new("development/default.onnx"),
+            ),
+            Path::new("custom/model.onnx")
+        );
+    }
+
+    #[test]
+    fn bundle_resource_path_wins_over_development_default() {
+        assert_eq!(
+            resolve_asset(
+                None,
+                Some(Path::new("/bundle/resources")),
+                "default.onnx",
+                Path::new("development/default.onnx"),
+            ),
+            Path::new("/bundle/resources/default.onnx")
+        );
+    }
+
+    #[test]
+    fn development_default_remains_available_outside_bundle() {
+        assert_eq!(
+            resolve_asset(
+                None,
+                None,
+                "default.onnx",
+                Path::new("development/default.onnx"),
+            ),
+            Path::new("development/default.onnx")
+        );
     }
 }
