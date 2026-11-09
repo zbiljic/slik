@@ -78,15 +78,10 @@ struct Cli {
 #[cfg(target_os = "macos")]
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    if cli.output == Output::Preview {
-        // GStreamer video sinks must be created on Cocoa's application main
-        // thread. Keep the existing async runner, but host preview inside
-        // GStreamer's macOS application loop so autovideosink can create its
-        // window correctly.
-        gst::macos_main(|| run_with_tokio(cli))
-    } else {
-        run_with_tokio(cli)
-    }
+    // Both macOS video sinks and AppleMedia/VideoToolbox decoders can require
+    // Cocoa's application main thread, including for otherwise headless runs.
+    // Host every pipeline inside GStreamer's macOS application loop.
+    gst::macos_main(|| run_with_tokio(cli))
 }
 
 #[cfg(not(target_os = "macos"))]
