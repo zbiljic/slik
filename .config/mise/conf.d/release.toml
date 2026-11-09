@@ -21,3 +21,13 @@ run = 'if [ "${usage_dist:-false}" = true ]; then exec ./packaging/macos/package
 [tasks."package:macos:verify"]
 description = "Verify an existing self-contained macOS application bundle"
 run = "./packaging/macos/verify.sh"
+
+[tasks."package:linux"]
+description = "Build and verify a self-contained Linux tarball"
+usage = 'flag "--dist" help="Build inside the pinned Ubuntu 26.04 container for distribution instead of from the host GStreamer"'
+depends = ["setup:model"]
+run = 'if [ "${usage_dist:-false}" = true ]; then exec ./packaging/linux/package.sh --dist; else exec ./packaging/linux/package.sh; fi'
+
+[tasks."package:linux:verify"]
+description = "Verify an unpacked self-contained Linux package"
+run = "./packaging/linux/verify.sh"

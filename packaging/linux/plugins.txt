@@ -1,0 +1,29 @@
+# Direct pipeline elements.
+coreelements
+playback
+rtsp
+videocrop
+videoconvertscale
+videotestsrc
+
+# H.264/H.265 RTP, parsing, and decoding. Linux has no system-wide decoder
+# comparable to VideoToolbox, so the portable software decoders come from
+# gst-libav (avdec_h264/avdec_h265).
+rtp
+rtpmanager
+udp
+videoparsersbad
+libav
+
+# File typefinding and the supported MP4, Matroska, and MPEG-TS containers.
+typefindfunctions
+isomp4
+matroska
+mpegtsdemux
+
+# Detection preview and X11 video sinks. Preview needs a desktop session;
+# headless runs never open a display.
+analyticsoverlay
+autodetect
+ximagesink
+xvimagesink
