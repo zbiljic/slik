@@ -1,0 +1,25 @@
+# Direct pipeline elements.
+coreelements
+playback
+rtsp
+videocrop
+videoconvertscale
+videotestsrc
+
+# H.264/H.265 RTP, parsing, and decoding.
+rtp
+rtpmanager
+udp
+videoparsersbad
+applemedia
+
+# File typefinding and the supported MP4, Matroska, and MPEG-TS containers.
+typefindfunctions
+isomp4
+matroska
+mpegtsdemux
+
+# Detection preview and the native macOS video sink.
+analyticsoverlay
+autodetect
+osxvideo

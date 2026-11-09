@@ -7,3 +7,17 @@ depends = ["rust:build"]
 description = "Build the project in release mode"
 alias = "br"
 depends = ["rust:build:release"]
+
+[tasks."setup:gstreamer:macos-sdk"]
+description = "Download and unpack the official GStreamer macOS SDK used for packaging"
+run = "./packaging/macos/gstreamer-sdk.sh >/dev/null"
+
+[tasks."package:macos"]
+description = "Build and verify a self-contained macOS application bundle"
+usage = 'flag "--dist" help="Build against the pinned official GStreamer SDK for distribution instead of the host GStreamer"'
+depends = ["setup:model"]
+run = 'if [ "${usage_dist:-false}" = true ]; then exec ./packaging/macos/package.sh --dist; else exec ./packaging/macos/package.sh; fi'
+
+[tasks."package:macos:verify"]
+description = "Verify an existing self-contained macOS application bundle"
+run = "./packaging/macos/verify.sh"

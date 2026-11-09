@@ -18,3 +18,6 @@ rustc-ice-*.txt
 
 # Downloaded model files (not committed)
 models/
+
+# Downloaded GStreamer SDK packages and prefix (not committed)
+.cache/
