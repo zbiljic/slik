@@ -74,6 +74,31 @@ mise run setup:model
 See [Models](docs/models.md) for supported contracts, the alternative fixture,
 and custom model paths.
 
+## Self-contained packages
+
+Everyday development uses the GStreamer installed on your machine. To hand
+`slik` to someone who does not have GStreamer, build a relocatable package that
+contains `slik`, its default model, and a private GStreamer runtime:
+
+```sh
+mise run package:macos          # target/package/macos/Slik.app
+mise run package:linux          # target/package/linux/slik-<version>-linux-<arch>.tar.gz
+```
+
+By default the package is assembled from the host's GStreamer, which is quick
+but only portable to systems at least as new as the build host. Add `--dist`
+for a distributable build from a pinned GStreamer:
+
+```sh
+mise run package:macos --dist   # official GStreamer macOS SDK, macOS 11.0+
+mise run package:linux --dist   # Ubuntu 26.04 container (Docker), glibc 2.43+
+```
+
+Every build is verified before it is reported as created. See the
+[macOS](packaging/macos/README.md) and [Linux](packaging/linux/README.md)
+packaging notes for layouts, plugin allowlists, signing, and remaining release
+work.
+
 ## Sources and output
 
 With no `--source`, or with `--source test`, `slik` uses a synthetic test
