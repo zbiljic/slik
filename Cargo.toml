@@ -12,7 +12,7 @@ rust-version = "1.96.0"
 version = "0.1.0"
 
 [workspace.dependencies]
-anyhow = "1.0.104"
+anyhow = "1.0.105"
 clap = { version = "4.6.9", features = ["derive"] }
 gstconsole = { package = "gst-plugin-console", git = "https://github.com/zbiljic/gstsmith-rs", branch = "main" }
 gstlines = { package = "gst-plugin-lines", git = "https://github.com/zbiljic/gstsmith-rs", branch = "main" }
